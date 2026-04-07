@@ -1,0 +1,210 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 10,
+      "title": "📊 Overview",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "title": "Latest Readings",
+      "description": "Most recent value for every tracked metric",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
+      "datasource": { "type": "postgres", "uid": "omnitrack-postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT DISTINCT ON (mt.name)\n  mt.display_name AS \"Metric\",\n  mr.value AS \"Value\",\n  mt.unit AS \"Unit\",\n  mt.category AS \"Category\",\n  mr.timestamp AS \"Time\",\n  sr.min_value AS \"Safe Min\",\n  sr.max_value AS \"Safe Max\"\nFROM metric_readings mr\nJOIN metric_types mt ON mr.metric_type_id = mt.id\nLEFT JOIN safe_ranges sr ON sr.metric_name = mt.name\nORDER BY mt.name, mr.timestamp DESC",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Time" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Value" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "custom.width", "value": 120 }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Category", "desc": false }]
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "id": 11,
+      "title": "📈 Metric Detail",
+      "type": "row"
+    },
+    {
+      "id": 2,
+      "title": "Trend: $metric",
+      "description": "Time-series for the selected metric with safe range bands",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "postgres", "uid": "omnitrack-postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  mr.timestamp AS time,\n  mr.value AS \"$metric\"\nFROM metric_readings mr\nJOIN metric_types mt ON mr.metric_type_id = mt.id\nWHERE mt.name = '$metric'\nORDER BY mr.timestamp",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT\n  mr.timestamp AS time,\n  sr.min_value AS \"safe_min\",\n  sr.max_value AS \"safe_max\"\nFROM metric_readings mr\nJOIN metric_types mt ON mr.metric_type_id = mt.id\nLEFT JOIN safe_ranges sr ON sr.metric_name = mt.name\nWHERE mt.name = '$metric' AND sr.id IS NOT NULL\nORDER BY mr.timestamp",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 6,
+            "showPoints": "auto",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "safe_min" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.lineWidth", "value": 1 },
+              { "id": "custom.fillOpacity", "value": 0 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "safe_max" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.lineWidth", "value": 1 },
+              { "id": "custom.fillOpacity", "value": 0 }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 12,
+      "title": "🧠 Insights & Activity",
+      "type": "row"
+    },
+    {
+      "id": 3,
+      "title": "Weekly Insight",
+      "description": "AI-generated weekly analysis",
+      "type": "text",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "postgres", "uid": "omnitrack-postgres" },
+      "options": {
+        "mode": "markdown",
+        "content": ""
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT content FROM insights ORDER BY week_start DESC LIMIT 1",
+          "refId": "A",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Ingestion Activity",
+      "description": "Number of readings logged per day",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "postgres", "uid": "omnitrack-postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  DATE_TRUNC('day', mr.timestamp)::date AS time,\n  COUNT(*) AS \"readings\"\nFROM metric_readings mr\nWHERE mr.timestamp >= NOW() - INTERVAL '30 days'\nGROUP BY DATE_TRUNC('day', mr.timestamp)::date\nORDER BY time",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "fillOpacity": 80,
+            "gradientMode": "scheme",
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "hidden" },
+        "orientation": "auto",
+        "tooltip": { "mode": "single" },
+        "xTickLabelRotation": -45
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["omni-track"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "postgres", "uid": "omnitrack-postgres" },
+        "definition": "SELECT name FROM metric_types ORDER BY name",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "metric",
+        "options": [],
+        "query": "SELECT name FROM metric_types ORDER BY name",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Omni-Track",
+  "uid": "omni-track-main",
+  "version": 1
+}

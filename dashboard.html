@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omni-Track Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-card: #111827;
+            --bg-card-hover: #1a2332;
+            --border: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-teal: #14b8a6;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --safe-green: #22c55e;
+            --danger-red: #ef4444;
+            --gradient-1: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            --gradient-2: linear-gradient(135deg, #14b8a6, #3b82f6);
+            --gradient-3: linear-gradient(135deg, #f59e0b, #f43f5e);
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+            --radius: 16px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Ambient background glow */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -200px; left: -200px;
+            width: 600px; height: 600px;
+            background: radial-gradient(circle, rgba(59,130,246,0.08), transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -200px; right: -200px;
+            width: 600px; height: 600px;
+            background: radial-gradient(circle, rgba(139,92,246,0.06), transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header .subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 24px;
+            font-size: 13px;
+            color: var(--safe-green);
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            background: var(--safe-green);
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+        }
+
+        /* Stat cards row */
+        .stat-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--gradient-1);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .stat-card:hover {
+            border-color: rgba(59,130,246,0.3);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+        .stat-card:hover::before { opacity: 1; }
+        .stat-card.selected {
+            border-color: var(--accent-blue);
+            background: var(--bg-card-hover);
+        }
+        .stat-card.selected::before { opacity: 1; }
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .stat-unit {
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-secondary);
+            margin-left: 4px;
+        }
+        .stat-range {
+            font-size: 11px;
+            margin-top: 8px;
+            color: var(--text-muted);
+        }
+        .stat-range .safe { color: var(--safe-green); }
+        .stat-range .danger { color: var(--danger-red); }
+        .stat-status {
+            position: absolute;
+            top: 16px; right: 16px;
+            width: 10px; height: 10px;
+            border-radius: 50%;
+        }
+        .stat-status.ok { background: var(--safe-green); }
+        .stat-status.warn { background: var(--accent-amber); }
+        .stat-status.danger { background: var(--danger-red); }
+
+        /* Category tabs */
+        .category-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .cat-tab {
+            padding: 8px 20px;
+            border-radius: 24px;
+            font-size: 13px;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .cat-tab:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+        .cat-tab.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        /* Sections */
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section-title .icon { font-size: 20px; }
+
+        /* Chart area */
+        .chart-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 28px;
+            box-shadow: var(--shadow);
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .chart-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .chart-container {
+            position: relative;
+            height: 350px;
+        }
+
+        /* Bottom grid */
+        .bottom-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 28px;
+        }
+        @media (max-width: 900px) {
+            .bottom-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Insight panel */
+        .insight-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+        .insight-content {
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+        .insight-content strong, .insight-content b {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        .insight-week {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        /* Activity chart */
+        .activity-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+        .activity-chart-container {
+            position: relative;
+            height: 250px;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .spinner {
+            width: 24px; height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>Omni-Track</h1>
+                <div class="subtitle">Life Operating System &mdash; Personal Metrics Dashboard</div>
+            </div>
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                <span>MCP Server Live</span>
+            </div>
+        </div>
+
+        <!-- Category Tabs -->
+        <div class="category-tabs" id="categoryTabs">
+            <button class="cat-tab active" data-cat="all">All Metrics</button>
+            <button class="cat-tab" data-cat="biometric">Biometric</button>
+            <button class="cat-tab" data-cat="behavioral">Behavioral</button>
+            <button class="cat-tab" data-cat="financial">Financial</button>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="stat-row" id="statRow">
+            <div class="loading"><div class="spinner"></div>Loading metrics...</div>
+        </div>
+
+        <!-- Time-series Chart -->
+        <div class="chart-panel">
+            <div class="chart-header">
+                <div>
+                    <div class="chart-title" id="chartTitle">Select a metric to view trends</div>
+                    <div class="chart-subtitle" id="chartSubtitle">Click any card above</div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Bottom: Insight + Activity -->
+        <div class="bottom-grid">
+            <div class="insight-panel">
+                <div class="section-title"><span class="icon">🧠</span> Weekly Insight</div>
+                <div class="insight-content" id="insightContent">Loading...</div>
+                <div class="insight-week" id="insightWeek"></div>
+            </div>
+            <div class="activity-panel">
+                <div class="section-title"><span class="icon">📊</span> Ingestion Activity</div>
+                <div class="activity-chart-container">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:8001';
+        let trendChart = null;
+        let activityChart = null;
+        let allLatest = [];
+        let selectedMetric = null;
+        let activeCategory = 'all';
+
+        // ── Color palette for categories ─────────────────────────────────────
+        const catColors = {
+            biometric: '#3b82f6',
+            behavioral: '#8b5cf6',
+            financial: '#f59e0b',
+            custom: '#14b8a6',
+        };
+
+        // ── Fetch helpers ────────────────────────────────────────────────────
+        async function fetchJSON(url) {
+            const res = await fetch(url);
+            return res.json();
+        }
+
+        // ── Status indicator (safe/warn/danger) ─────────────────────────────
+        function getStatus(value, safeMin, safeMax) {
+            if (safeMin == null && safeMax == null) return 'ok';
+            if (safeMin != null && value < safeMin) return 'danger';
+            if (safeMax != null && value > safeMax) return 'danger';
+            // Warn if within 10% of boundary
+            const range = (safeMax || 0) - (safeMin || 0);
+            if (range > 0) {
+                if (safeMin != null && value < safeMin + range * 0.1) return 'warn';
+                if (safeMax != null && value > safeMax - range * 0.1) return 'warn';
+            }
+            return 'ok';
+        }
+
+        // ── Render stat cards ────────────────────────────────────────────────
+        function renderCards() {
+            const container = document.getElementById('statRow');
+            const filtered = activeCategory === 'all'
+                ? allLatest
+                : allLatest.filter(m => m.category === activeCategory);
+
+            if (!filtered.length) {
+                container.innerHTML = '<div class="loading">No metrics in this category</div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(m => {
+                const status = getStatus(m.value, m.safe_min, m.safe_max);
+                const isSelected = selectedMetric === m.name;
+                const rangeHtml = (m.safe_min != null || m.safe_max != null)
+                    ? `<div class="stat-range">Safe: <span class="safe">${m.safe_min ?? '—'}–${m.safe_max ?? '—'}</span></div>`
+                    : '';
+                return `
+                    <div class="stat-card ${isSelected ? 'selected' : ''}"
+                         data-metric="${m.name}" onclick="selectMetric('${m.name}')">
+                        <div class="stat-status ${status}"></div>
+                        <div class="stat-label">${m.display_name}</div>
+                        <div class="stat-value">
+                            ${formatValue(m.value)}
+                            <span class="stat-unit">${m.unit || ''}</span>
+                        </div>
+                        ${rangeHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function formatValue(v) {
+            if (v >= 10000) return v.toLocaleString('en-IN');
+            if (Number.isInteger(v)) return v;
+            return parseFloat(v.toFixed(1));
+        }
+
+        // ── Select metric & draw trend ──────────────────────────────────────
+        async function selectMetric(name) {
+            selectedMetric = name;
+            renderCards();
+
+            const info = allLatest.find(m => m.name === name);
+            document.getElementById('chartTitle').textContent = info ? info.display_name : name;
+            document.getElementById('chartSubtitle').textContent =
+                info ? `${info.category} · ${info.unit || 'no unit'}` : '';
+
+            const readings = await fetchJSON(`${API}/api/readings?name=${name}`);
+            drawTrendChart(readings, info);
+        }
+
+        function drawTrendChart(readings, info) {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            if (trendChart) trendChart.destroy();
+
+            const data = readings.map(r => ({ x: new Date(r.timestamp), y: r.value }));
+            const color = catColors[info?.category] || '#3b82f6';
+
+            const datasets = [
+                {
+                    label: info?.display_name || 'Value',
+                    data: data,
+                    borderColor: color,
+                    backgroundColor: color + '18',
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 4,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: color,
+                    borderWidth: 2.5,
+                },
+            ];
+
+            // Safe range bands
+            if (readings.length && readings[0].safe_min != null) {
+                const safeMin = readings[0].safe_min;
+                datasets.push({
+                    label: 'Safe Min',
+                    data: data.map(d => ({ x: d.x, y: safeMin })),
+                    borderColor: '#22c55e55',
+                    borderDash: [8, 4],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: false,
+                });
+            }
+            if (readings.length && readings[0].safe_max != null) {
+                const safeMax = readings[0].safe_max;
+                datasets.push({
+                    label: 'Safe Max',
+                    data: data.map(d => ({ x: d.x, y: safeMax })),
+                    borderColor: '#ef444455',
+                    borderDash: [8, 4],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: false,
+                });
+            }
+
+            trendChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#94a3b8', font: { family: 'Inter', size: 12 } },
+                        },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#94a3b8',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 12,
+                            titleFont: { family: 'Inter', weight: '600' },
+                            bodyFont: { family: 'Inter' },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { unit: 'day', tooltipFormat: 'MMM dd, yyyy' },
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
+                        },
+                        y: {
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
+                        },
+                    },
+                },
+            });
+        }
+
+        // ── Activity chart ──────────────────────────────────────────────────
+        async function loadActivity() {
+            const data = await fetchJSON(`${API}/api/activity`);
+            const ctx = document.getElementById('activityChart').getContext('2d');
+
+            if (activityChart) activityChart.destroy();
+            activityChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => {
+                        const dt = new Date(d.day);
+                        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }),
+                    datasets: [{
+                        label: 'Readings',
+                        data: data.map(d => d.count),
+                        backgroundColor: data.map((_, i) => {
+                            const t = i / data.length;
+                            return `rgba(${59 + 80*t}, ${130 - 40*t}, ${246 - 100*t}, 0.7)`;
+                        }),
+                        borderRadius: 6,
+                        borderSkipped: false,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#94a3b8',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                        },
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#64748b', font: { family: 'Inter', size: 10 }, maxRotation: 45 },
+                        },
+                        y: {
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#64748b', font: { family: 'Inter', size: 11 }, stepSize: 1 },
+                        },
+                    },
+                },
+            });
+        }
+
+        // ── Insight ─────────────────────────────────────────────────────────
+        async function loadInsight() {
+            const data = await fetchJSON(`${API}/api/insight`);
+            const el = document.getElementById('insightContent');
+            const weekEl = document.getElementById('insightWeek');
+
+            if (data && data.content) {
+                // Simple markdown bold
+                el.innerHTML = data.content
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n/g, '<br>');
+                if (data.week_start) {
+                    weekEl.textContent = `Week of ${data.week_start}`;
+                }
+            } else {
+                el.textContent = 'No insights generated yet.';
+            }
+        }
+
+        // ── Category tabs ───────────────────────────────────────────────────
+        document.getElementById('categoryTabs').addEventListener('click', (e) => {
+            const tab = e.target.closest('.cat-tab');
+            if (!tab) return;
+            document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            activeCategory = tab.dataset.cat;
+            renderCards();
+        });
+
+        // ── Init ────────────────────────────────────────────────────────────
+        async function init() {
+            try {
+                allLatest = await fetchJSON(`${API}/api/latest`);
+                renderCards();
+
+                // Auto-select first metric
+                if (allLatest.length) {
+                    await selectMetric(allLatest[0].name);
+                }
+
+                await loadInsight();
+                await loadActivity();
+            } catch (err) {
+                document.getElementById('statRow').innerHTML =
+                    `<div class="loading" style="color:var(--danger-red)">
+                        Failed to connect to API at ${API}. Make sure dashboard_api.py is running.
+                    </div>`;
+                console.error(err);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
