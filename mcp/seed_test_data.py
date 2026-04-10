@@ -40,32 +40,32 @@ print(f"  ✓ {len(safe_ranges)} safe ranges configured")
 # ── Metric types ─────────────────────────────────────────────────────────────
 
 metrics = [
-    # (name, display_name, unit, category, base_value, variance, safe_min, safe_max)
-    ("blood_pressure_systolic", "BP Systolic", "mmHg", "biometric", 118, 10, 90, 135),
-    ("blood_pressure_diastolic", "BP Diastolic", "mmHg", "biometric", 76, 6, 60, 90),
-    ("heart_rate", "Heart Rate", "bpm", "biometric", 72, 8, 55, 100),
-    ("fasting_blood_sugar", "Fasting Blood Sugar", "mg/dL", "biometric", 92, 12, 70, 110),
-    ("body_weight", "Body Weight", "kg", "biometric", 74.5, 0.8, None, None),
-    ("body_temperature", "Body Temperature", "°C", "biometric", 36.6, 0.3, None, None),
-    ("spo2", "SpO2", "%", "biometric", 97.5, 1.5, 95, 100),
-    ("sleep_hours", "Sleep Duration", "hours", "behavioral", 7.2, 1.2, None, None),
-    ("water_intake_liters", "Water Intake", "L", "behavioral", 2.5, 0.6, None, None),
-    ("steps", "Daily Steps", "steps", "behavioral", 9500, 3000, None, None),
-    ("pushups", "Push-ups", "reps", "behavioral", 30, 10, None, None),
-    ("running_distance", "Running Distance", "km", "behavioral", 4.0, 1.5, None, None),
-    ("monthly_savings", "Monthly Savings", "₹", "financial", 25000, 8000, None, None),
-    ("daily_spending", "Daily Spending", "₹", "financial", 850, 400, None, None),
-    ("caffeine_cups", "Caffeine Intake", "cups", "behavioral", 2.5, 1.0, None, None),
+    # (name, display_name, unit, category, base_value, variance, safe_min, safe_max, viz_type)
+    ("blood_pressure_systolic", "BP Systolic", "mmHg", "biometric", 118, 10, 90, 135, "line"),
+    ("blood_pressure_diastolic", "BP Diastolic", "mmHg", "biometric", 76, 6, 60, 90, "line"),
+    ("heart_rate", "Heart Rate", "bpm", "biometric", 72, 8, 55, 100, "line"),
+    ("fasting_blood_sugar", "Fasting Blood Sugar", "mg/dL", "biometric", 92, 12, 70, 110, "line"),
+    ("body_weight", "Body Weight", "kg", "biometric", 74.5, 0.8, None, None, "line"),
+    ("body_temperature", "Body Temperature", "\u00b0C", "biometric", 36.6, 0.3, None, None, "line"),
+    ("spo2", "SpO2", "%", "biometric", 97.5, 1.5, 95, 100, "line"),
+    ("sleep_hours", "Sleep Duration", "hours", "behavioral", 7.2, 1.2, None, None, "line"),
+    ("water_intake_liters", "Water Intake", "L", "behavioral", 2.5, 0.6, None, None, "bar"),
+    ("steps", "Daily Steps", "steps", "behavioral", 9500, 3000, None, None, "bar"),
+    ("pushups", "Push-ups", "reps", "behavioral", 30, 10, None, None, "bar"),
+    ("running_distance", "Running Distance", "km", "behavioral", 4.0, 1.5, None, None, "bar"),
+    ("monthly_savings", "Monthly Savings", "\u20b9", "financial", 25000, 8000, None, None, "line"),
+    ("daily_spending", "Daily Spending", "\u20b9", "financial", 850, 400, None, None, "bar"),
+    ("caffeine_cups", "Caffeine Intake", "cups", "behavioral", 2.5, 1.0, None, None, "bar"),
 ]
 
 now = datetime.utcnow()
 readings_count = 0
 
-for name, display, unit, category, base, var, _, _ in metrics:
-    # Create metric type
+for name, display, unit, category, base, var, _, _, viz in metrics:
+    # Create metric type with viz_type
     db.execute_returning(
-        "INSERT OR IGNORE INTO metric_types (name, display_name, unit, category) VALUES (?, ?, ?, ?)",
-        (name, display, unit, category),
+        "INSERT OR IGNORE INTO metric_types (name, display_name, unit, category, viz_type) VALUES (?, ?, ?, ?, ?)",
+        (name, display, unit, category, viz),
     )
 
     # Generate 30 days of data (some metrics daily, some less frequent)

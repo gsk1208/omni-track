@@ -34,7 +34,7 @@ def list_metric_types() -> list[dict]:
     and maintain consistent naming (snake_case).
     """
     return db.fetch_all(
-        "SELECT name, display_name, unit, category FROM metric_types ORDER BY category, name"
+        "SELECT name, display_name, unit, category, viz_type FROM metric_types ORDER BY category, name"
     )
 
 
@@ -52,6 +52,7 @@ def upsert_reading(
     source_type: str,
     source_ref: Optional[str] = None,
     notes: Optional[str] = None,
+    viz_type: Optional[str] = None,
 ) -> dict:
     """Insert a metric reading. Auto-creates the metric type if it doesn't exist yet.
 
@@ -60,23 +61,25 @@ def upsert_reading(
         display_name: Human-readable name (e.g. "BP Systolic")
         value: Numeric value of the reading
         unit: Unit of measurement (e.g. "mmHg", "kg", "mg/dL") or null
-        category: One of: biometric, financial, behavioral, custom
+        category: One of: biometric, financial, behavioral, custom, context
         timestamp: ISO-8601 when the measurement was taken (not ingestion time)
         source_type: One of: pdf, image, voice, text
         source_ref: Optional reference ID (e.g. telegram message_id)
         notes: Optional context captured alongside the reading
+        viz_type: Optional visualization type — 'bar', 'line', or 'pending'. Set on first ingestion.
     """
     # Auto-create metric type if it doesn't exist
     existing = db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (metric_name,))
     if existing:
         metric_type_id = existing["id"]
     else:
+        vt = viz_type or "pending"
         result = db.execute_returning(
-            "INSERT INTO metric_types (name, display_name, unit, category) VALUES (?, ?, ?, ?)",
-            (metric_name, display_name, unit, category),
+            "INSERT INTO metric_types (name, display_name, unit, category, viz_type) VALUES (?, ?, ?, ?, ?)",
+            (metric_name, display_name, unit, category, vt),
         )
         metric_type_id = result["id"]
-        logger.info("Created new metric type: %s (id=%s)", metric_name, metric_type_id)
+        logger.info("Created new metric type: %s (id=%s, viz=%s)", metric_name, metric_type_id, vt)
 
     # Upsert reading (INSERT OR REPLACE for SQLite)
     db.execute(
@@ -270,7 +273,33 @@ def get_safe_ranges(metric_name: Optional[str] = None) -> list[dict]:
     return db.fetch_all("SELECT metric_name, min_value, max_value FROM safe_ranges ORDER BY metric_name")
 
 
-# ── Entry point ──────────────────────────────────────────────────────────────
+# ── Tool 9: Set visualization type ─────────────────────────────────────────────
+
+
+@mcp.tool()
+def set_viz_type(metric_name: str, viz_type: str) -> dict:
+    """Set the visualization type for a metric.
+
+    Call this after the agent classifies a metric's temporal pattern, or after
+    a user chooses between bar chart and line graph.
+
+    Args:
+        metric_name: The snake_case metric name
+        viz_type: 'bar' (daily totals, intermittent) or 'line' (continuous trends)
+    """
+    if viz_type not in ("bar", "line"):
+        return {"status": "error", "message": "viz_type must be 'bar' or 'line'"}
+
+    rows = db.execute(
+        "UPDATE metric_types SET viz_type = ? WHERE name = ?",
+        (viz_type, metric_name),
+    )
+    if rows == 0:
+        return {"status": "error", "message": f"Metric '{metric_name}' not found"}
+    return {"status": "ok", "metric_name": metric_name, "viz_type": viz_type}
+
+
+# ── Entry point ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     db.init_db()

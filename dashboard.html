@@ -381,7 +381,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:8001';
+        const API = (() => { const p = location.port; return `http://localhost:${p || 8001}`; })();
         let trendChart = null;
         let activityChart = null;
         let allLatest = [];
@@ -432,13 +432,17 @@
                 const status = getStatus(m.value, m.safe_min, m.safe_max);
                 const isSelected = selectedMetric === m.name;
                 const rangeHtml = (m.safe_min != null || m.safe_max != null)
-                    ? `<div class="stat-range">Safe: <span class="safe">${m.safe_min ?? '—'}–${m.safe_max ?? '—'}</span></div>`
+                    ? `<div class="stat-range">Safe: <span class="safe">${m.safe_min ?? '\u2014'}\u2013${m.safe_max ?? '\u2014'}</span></div>`
                     : '';
+                const vizIcon = m.viz_type === 'bar' ? '\u2581\u2583\u2585' : m.viz_type === 'line' ? '\u301C' : '\u2026';
+                const vizLabel = m.viz_type === 'bar' ? 'Bar' : m.viz_type === 'line' ? 'Line' : 'Pending';
                 return `
                     <div class="stat-card ${isSelected ? 'selected' : ''}"
                          data-metric="${m.name}" onclick="selectMetric('${m.name}')">
                         <div class="stat-status ${status}"></div>
-                        <div class="stat-label">${m.display_name}</div>
+                        <div class="stat-label">${m.display_name}
+                            <span style="float:right;font-size:10px;opacity:0.5" title="Chart: ${vizLabel}">${vizIcon}</span>
+                        </div>
                         <div class="stat-value">
                             ${formatValue(m.value)}
                             <span class="stat-unit">${m.unit || ''}</span>
@@ -475,24 +479,28 @@
 
             const data = readings.map(r => ({ x: new Date(r.timestamp), y: r.value }));
             const color = catColors[info?.category] || '#3b82f6';
+            const vizType = info?.viz_type || 'line';
+            const isBar = vizType === 'bar';
 
             const datasets = [
                 {
                     label: info?.display_name || 'Value',
                     data: data,
                     borderColor: color,
-                    backgroundColor: color + '18',
-                    fill: true,
-                    tension: 0.35,
-                    pointRadius: 4,
-                    pointHoverRadius: 7,
+                    backgroundColor: isBar ? color + '99' : color + '18',
+                    fill: !isBar,
+                    tension: isBar ? 0 : 0.35,
+                    pointRadius: isBar ? 0 : 4,
+                    pointHoverRadius: isBar ? 0 : 7,
                     pointBackgroundColor: color,
-                    borderWidth: 2.5,
+                    borderWidth: isBar ? 0 : 2.5,
+                    borderRadius: isBar ? 6 : 0,
+                    borderSkipped: false,
                 },
             ];
 
-            // Safe range bands
-            if (readings.length && readings[0].safe_min != null) {
+            // Safe range bands (only for line charts)
+            if (!isBar && readings.length && readings[0].safe_min != null) {
                 const safeMin = readings[0].safe_min;
                 datasets.push({
                     label: 'Safe Min',
@@ -504,7 +512,7 @@
                     fill: false,
                 });
             }
-            if (readings.length && readings[0].safe_max != null) {
+            if (!isBar && readings.length && readings[0].safe_max != null) {
                 const safeMax = readings[0].safe_max;
                 datasets.push({
                     label: 'Safe Max',
@@ -518,7 +526,7 @@
             }
 
             trendChart = new Chart(ctx, {
-                type: 'line',
+                type: isBar ? 'bar' : 'line',
                 data: { datasets },
                 options: {
                     responsive: true,
@@ -543,12 +551,13 @@
                         x: {
                             type: 'time',
                             time: { unit: 'day', tooltipFormat: 'MMM dd, yyyy' },
-                            grid: { color: '#1e293b' },
+                            grid: { color: isBar ? 'transparent' : '#1e293b' },
                             ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
                         },
                         y: {
                             grid: { color: '#1e293b' },
                             ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
+                            beginAtZero: isBar,
                         },
                     },
                 },

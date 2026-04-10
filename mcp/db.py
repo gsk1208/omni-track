@@ -38,7 +38,8 @@ def init_db() -> None:
             name        TEXT UNIQUE NOT NULL,
             display_name TEXT NOT NULL,
             unit        TEXT,
-            category    TEXT NOT NULL CHECK (category IN ('biometric', 'financial', 'behavioral', 'custom')),
+            category    TEXT NOT NULL CHECK (category IN ('biometric', 'financial', 'behavioral', 'custom', 'context')),
+            viz_type    TEXT DEFAULT 'pending' CHECK (viz_type IN ('bar', 'line', 'pending')),
             created_at  TEXT DEFAULT (datetime('now'))
         );
 
@@ -75,7 +76,21 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_metric_types_category   ON metric_types(category);
     """)
     conn.commit()
+
+    # ── Migrations for existing databases ──
+    _migrate(conn)
     logger.info("Database initialized at %s", DB_PATH)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Run schema migrations for columns/tables added after initial release."""
+    cursor = conn.execute("PRAGMA table_info(metric_types)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "viz_type" not in columns:
+        conn.execute("ALTER TABLE metric_types ADD COLUMN viz_type TEXT DEFAULT 'pending' CHECK (viz_type IN ('bar', 'line', 'pending'))")
+        conn.commit()
+        logger.info("Migration: added viz_type column to metric_types")
 
 
 def _serialize(value):

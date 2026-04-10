@@ -19,6 +19,20 @@ class DashboardAPI(BaseHTTPRequestHandler):
         path = parsed.path
         params = parse_qs(parsed.query)
 
+        # Serve dashboard.html
+        if path == "/dashboard.html" or path == "/":
+            dashboard_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard.html")
+            if os.path.exists(dashboard_path):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                with open(dashboard_path, "rb") as f:
+                    self.wfile.write(f.read())
+                return
+            self.send_response(404)
+            self.end_headers()
+            return
+
         # CORS headers
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -28,7 +42,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
         try:
             if path == "/api/latest":
                 data = db.fetch_all("""
-                    SELECT mt.name, mt.display_name, mt.unit, mt.category,
+                    SELECT mt.name, mt.display_name, mt.unit, mt.category, mt.viz_type,
                            mr.value, mr.timestamp, mr.notes,
                            sr.min_value AS safe_min, sr.max_value AS safe_max
                     FROM metric_readings mr
@@ -43,7 +57,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
                 """)
             elif path == "/api/metrics":
                 data = db.fetch_all(
-                    "SELECT name, display_name, unit, category FROM metric_types ORDER BY category, name"
+                    "SELECT name, display_name, unit, category, viz_type FROM metric_types ORDER BY category, name"
                 )
             elif path == "/api/readings":
                 name = params.get("name", [None])[0]
@@ -91,8 +105,9 @@ class DashboardAPI(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     db.init_db()
-    port = 8001
+    port = int(os.environ.get("DASHBOARD_PORT", "8090"))
     server = HTTPServer(("0.0.0.0", port), DashboardAPI)
     print(f"Dashboard API running on http://localhost:{port}")
+    print(f"Dashboard: http://localhost:{port}/dashboard.html")
     print("Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity")
     server.serve_forever()
