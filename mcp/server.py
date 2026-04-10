@@ -3,6 +3,7 @@
 Zero-install local mode: uses SQLite. For production, swap db.py to PostgreSQL.
 """
 
+import json
 import logging
 from typing import Optional
 from datetime import datetime
@@ -582,6 +583,77 @@ def get_metric_context(metric_name: str, days: int = 30) -> list[dict]:
            ORDER BY timestamp DESC""",
         (mt["id"], days),
     )
+
+
+# ── Tool 16: Log correlation ─────────────────────────────────────────────────
+
+
+@mcp.tool()
+def log_correlation(
+    metrics: list[str],
+    pattern: str,
+    confidence: str,
+    followup_question: Optional[str] = None
+) -> dict:
+    """Store a non-obvious cross-metric correlation found by the agent.
+
+    Args:
+        metrics: List of snake_case metric names involved in this correlation
+        pattern: The observed correlation pattern (e.g. "When X increases, Y drops")
+        confidence: Must be "high", "medium", or "speculative"
+        followup_question: Optional question to ask the user to refine this thesis
+    """
+    if confidence not in ("high", "medium", "speculative"):
+        return {"status": "error", "message": "confidence must be high, medium, or speculative"}
+
+    # Validate metrics exist
+    for m in metrics:
+        if not db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (m,)):
+            return {"status": "error", "message": f"Metric '{m}' not found"}
+
+    db.execute(
+        """INSERT INTO correlations (metrics_involved, pattern, confidence, followup_question)
+           VALUES (?, ?, ?, ?)""",
+        (json.dumps(metrics), pattern, confidence, followup_question),
+    )
+    logger.info("Logged %s correlation involving %s", confidence, metrics)
+
+    return {"status": "ok", "metrics": metrics, "confidence": confidence}
+
+
+# ── Tool 17: Get correlations ────────────────────────────────────────────────
+
+
+@mcp.tool()
+def get_correlations(min_confidence: Optional[str] = None) -> list[dict]:
+    """Retrieve stored correlations.
+
+    Args:
+        min_confidence: Optional filter ("high" or "medium"). If "high", returns only high.
+                        If "medium", returns high and medium. If omitted, returns all.
+    """
+    if min_confidence == "high":
+        conf_filter = "confidence = 'high'"
+    elif min_confidence == "medium":
+        conf_filter = "confidence IN ('high', 'medium')"
+    else:
+        conf_filter = "1=1"
+
+    rows = db.fetch_all(f"""
+        SELECT id, metrics_involved, pattern, confidence, followup_question, generated_at
+        FROM correlations
+        WHERE {conf_filter}
+        ORDER BY generated_at DESC
+    """)
+    
+    # Parse the JSON string back into a list for the API response
+    for row in rows:
+        try:
+            row["metrics_involved"] = json.loads(row["metrics_involved"])
+        except json.JSONDecodeError:
+            row["metrics_involved"] = []
+
+    return rows
 
 
 # ── Entry point ──────────────────────────────────────────────────────────

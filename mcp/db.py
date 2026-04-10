@@ -88,6 +88,15 @@ def init_db() -> None:
             updated_at       TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS correlations (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            metrics_involved  TEXT NOT NULL, -- JSON array of metric names
+            pattern           TEXT NOT NULL,
+            confidence        TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'speculative')),
+            followup_question TEXT,
+            generated_at      TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE INDEX IF NOT EXISTS idx_readings_metric_type   ON metric_readings(metric_type_id);
         CREATE INDEX IF NOT EXISTS idx_readings_timestamp      ON metric_readings(timestamp);
         CREATE INDEX IF NOT EXISTS idx_readings_metric_ts_desc ON metric_readings(metric_type_id, timestamp DESC);

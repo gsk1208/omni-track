@@ -98,6 +98,18 @@ class DashboardAPI(BaseHTTPRequestHandler):
                     LEFT JOIN streaks s ON s.metric_type_id = mt.id
                     ORDER BY s.current_streak DESC, mt.name
                 """)
+            elif path == "/api/correlations":
+                rows = db.fetch_all("""
+                    SELECT id, metrics_involved, pattern, confidence, followup_question, generated_at
+                    FROM correlations
+                    ORDER BY generated_at DESC
+                """)
+                for row in rows:
+                    try:
+                        row["metrics_involved"] = json.loads(row["metrics_involved"])
+                    except Exception:
+                        row["metrics_involved"] = []
+                data = rows
             else:
                 data = {"error": "Unknown endpoint"}
 
