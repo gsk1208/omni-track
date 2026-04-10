@@ -45,11 +45,11 @@ def list_metric_types() -> list[dict]:
 def upsert_reading(
     metric_name: str,
     display_name: str,
-    value: float,
     unit: Optional[str],
     category: str,
     timestamp: str,
     source_type: str,
+    value: Optional[float] = None,
     source_ref: Optional[str] = None,
     notes: Optional[str] = None,
     viz_type: Optional[str] = None,
@@ -59,11 +59,11 @@ def upsert_reading(
     Args:
         metric_name: snake_case unique key (e.g. "blood_pressure_systolic")
         display_name: Human-readable name (e.g. "BP Systolic")
-        value: Numeric value of the reading
         unit: Unit of measurement (e.g. "mmHg", "kg", "mg/dL") or null
         category: One of: biometric, financial, behavioral, custom, context
         timestamp: ISO-8601 when the measurement was taken (not ingestion time)
         source_type: One of: pdf, image, voice, text
+        value: Numeric value of the reading (optional for context-only logs)
         source_ref: Optional reference ID (e.g. telegram message_id)
         notes: Optional context captured alongside the reading
         viz_type: Optional visualization type — 'bar', 'line', or 'pending'. Set on first ingestion.
@@ -523,6 +523,65 @@ def check_level_up(metric_name: str) -> dict:
         "threshold_needed": round(threshold, 2),
         "suggested_next": suggested if qualifies else None,
     }
+
+
+# ── Tool 14: Rename metric ───────────────────────────────────────────────────
+
+
+@mcp.tool()
+def rename_metric(old_name: str, new_name: str, new_display_name: Optional[str] = None) -> dict:
+    """Rename a metric type.
+
+    Used when a first-time metric is logged and the agent asks a clarifying
+    question to sub-categorize it (e.g. "blood_sugar" -> "blood_sugar_fasting").
+
+    Args:
+        old_name: The current snake_case metric name
+        new_name: The new snake_case metric name
+        new_display_name: Optional new human-readable display name
+    """
+    mt = db.fetch_one("SELECT id, display_name FROM metric_types WHERE name = ?", (old_name,))
+    if not mt:
+        return {"status": "error", "message": f"Metric '{old_name}' not found"}
+
+    display_name = new_display_name or mt["display_name"]
+    db.execute(
+        "UPDATE metric_types SET name = ?, display_name = ? WHERE id = ?",
+        (new_name, display_name, mt["id"]),
+    )
+    logger.info("Renamed metric from %s to %s", old_name, new_name)
+
+    return {
+        "status": "ok",
+        "old_name": old_name,
+        "new_name": new_name,
+        "new_display_name": display_name,
+    }
+
+
+# ── Tool 15: Get metric context ──────────────────────────────────────────────
+
+
+@mcp.tool()
+def get_metric_context(metric_name: str, days: int = 30) -> list[dict]:
+    """Retrieve all contextual notes logged alongside a metric over recent days.
+
+    Args:
+        metric_name: The snake_case metric name to fetch context for
+        days: How many days back to look
+    """
+    mt = db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (metric_name,))
+    if not mt:
+        return []
+
+    return db.fetch_all(
+        """SELECT timestamp, value, notes, source_type 
+           FROM metric_readings 
+           WHERE metric_type_id = ? AND timestamp >= DATE('now', '-' || ? || ' days')
+             AND notes IS NOT NULL
+           ORDER BY timestamp DESC""",
+        (mt["id"], days),
+    )
 
 
 # ── Entry point ──────────────────────────────────────────────────────────

@@ -46,7 +46,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS metric_readings (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             metric_type_id  INTEGER REFERENCES metric_types(id),
-            value           REAL NOT NULL,
+            value           REAL,
             timestamp       TEXT NOT NULL,
             ingested_at     TEXT DEFAULT (datetime('now')),
             source_type     TEXT NOT NULL CHECK (source_type IN ('pdf', 'image', 'voice', 'text')),
@@ -109,6 +109,34 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE metric_types ADD COLUMN viz_type TEXT DEFAULT 'pending' CHECK (viz_type IN ('bar', 'line', 'pending'))")
         conn.commit()
         logger.info("Migration: added viz_type column to metric_types")
+
+    # Check if metric_readings.value has NOT NULL constraint
+    cursor = conn.execute("PRAGMA table_info(metric_readings)")
+    value_col = next((row for row in cursor.fetchall() if row[1] == "value"), None)
+    if value_col and value_col[3] == 1:  # 1 means NOT NULL is true
+        logger.info("Migration: relaxing NOT NULL on metric_readings.value")
+        conn.executescript("""
+            CREATE TABLE metric_readings_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                metric_type_id  INTEGER REFERENCES metric_types(id),
+                value           REAL,
+                timestamp       TEXT NOT NULL,
+                ingested_at     TEXT DEFAULT (datetime('now')),
+                source_type     TEXT NOT NULL CHECK (source_type IN ('pdf', 'image', 'voice', 'text')),
+                source_ref      TEXT,
+                notes           TEXT,
+                UNIQUE(metric_type_id, timestamp)
+            );
+            INSERT INTO metric_readings_new SELECT * FROM metric_readings;
+            DROP TABLE metric_readings;
+            ALTER TABLE metric_readings_new RENAME TO metric_readings;
+            
+            CREATE INDEX idx_readings_metric_type   ON metric_readings(metric_type_id);
+            CREATE INDEX idx_readings_timestamp      ON metric_readings(timestamp);
+            CREATE INDEX idx_readings_metric_ts_desc ON metric_readings(metric_type_id, timestamp DESC);
+        """)
+        conn.commit()
+        logger.info("Migration: metric_readings.value is now nullable")
 
 
 def _serialize(value):
