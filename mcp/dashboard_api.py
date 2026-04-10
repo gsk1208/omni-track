@@ -86,6 +86,18 @@ class DashboardAPI(BaseHTTPRequestHandler):
                     GROUP BY DATE(timestamp)
                     ORDER BY day
                 """)
+            elif path == "/api/goals":
+                data = db.fetch_all("""
+                    SELECT mt.name AS metric_name, mt.display_name, mt.unit,
+                           mg.target_value, mg.target_direction, mg.suggested_next,
+                           COALESCE(s.current_streak, 0) AS current_streak,
+                           COALESCE(s.longest_streak, 0) AS longest_streak,
+                           s.last_active_date
+                    FROM metric_goals mg
+                    JOIN metric_types mt ON mg.metric_type_id = mt.id
+                    LEFT JOIN streaks s ON s.metric_type_id = mt.id
+                    ORDER BY s.current_streak DESC, mt.name
+                """)
             else:
                 data = {"error": "Unknown endpoint"}
 

@@ -322,6 +322,89 @@
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* Goals & Streaks */
+        .goals-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 28px;
+            box-shadow: var(--shadow);
+        }
+        .goals-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .goal-card {
+            background: rgba(139, 92, 246, 0.06);
+            border: 1px solid rgba(139, 92, 246, 0.15);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+        .goal-card:hover {
+            border-color: rgba(139, 92, 246, 0.3);
+            transform: translateY(-1px);
+        }
+        .goal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .goal-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .goal-streak {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 13px;
+            color: var(--accent-amber);
+        }
+        .goal-target {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+        .goal-progress-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .goal-progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.6s ease;
+        }
+        .goal-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .goal-stats .best { color: var(--accent-teal); }
+        .goal-level-up {
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            border-radius: 8px;
+            font-size: 11px;
+            color: var(--accent-amber);
+        }
+        .goals-empty {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -361,6 +444,14 @@
             </div>
             <div class="chart-container">
                 <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Goals & Streaks -->
+        <div class="goals-panel">
+            <div class="section-title"><span class="icon">🎯</span> Goals & Streaks</div>
+            <div class="goals-grid" id="goalsGrid">
+                <div class="goals-empty">No goals set yet. Use the MCP tool <code>set_goal</code> to get started.</div>
             </div>
         </div>
 
@@ -644,6 +735,42 @@
             renderCards();
         });
 
+        // ── Goals & Streaks ──────────────────────────────────────────────────
+        async function loadGoals() {
+            const goals = await fetchJSON(`${API}/api/goals`);
+            const container = document.getElementById('goalsGrid');
+
+            if (!goals || !goals.length) {
+                container.innerHTML = '<div class="goals-empty">No goals set yet. Use the MCP tool <code>set_goal</code> to get started.</div>';
+                return;
+            }
+
+            container.innerHTML = goals.map(g => {
+                const dir = g.target_direction === 'gte' ? '\u2265' : '\u2264';
+                const streakFire = g.current_streak >= 7 ? '\uD83D\uDD25' : g.current_streak >= 3 ? '\u26A1' : '';
+                const pct = Math.min(100, (g.current_streak / 30) * 100);
+                const gradColor = g.current_streak >= 7 ? 'var(--accent-amber)' : g.current_streak >= 3 ? 'var(--accent-teal)' : 'var(--accent-blue)';
+                const levelUp = g.suggested_next ? `<div class="goal-level-up">\uD83D\uDCC8 Level up suggested: ${g.suggested_next} ${g.unit || ''}</div>` : '';
+                return `
+                    <div class="goal-card">
+                        <div class="goal-header">
+                            <span class="goal-name">${g.display_name}</span>
+                            <span class="goal-streak">${streakFire} ${g.current_streak}d</span>
+                        </div>
+                        <div class="goal-target">Target: ${dir} ${g.target_value} ${g.unit || ''}/day</div>
+                        <div class="goal-progress-bar">
+                            <div class="goal-progress-fill" style="width:${pct}%;background:${gradColor}"></div>
+                        </div>
+                        <div class="goal-stats">
+                            <span>Current: ${g.current_streak} days</span>
+                            <span class="best">Best: ${g.longest_streak} days</span>
+                        </div>
+                        ${levelUp}
+                    </div>
+                `;
+            }).join('');
+        }
+
         // ── Init ────────────────────────────────────────────────────────────
         async function init() {
             try {
@@ -657,6 +784,7 @@
 
                 await loadInsight();
                 await loadActivity();
+                await loadGoals();
             } catch (err) {
                 document.getElementById('statRow').innerHTML =
                     `<div class="loading" style="color:var(--danger-red)">

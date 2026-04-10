@@ -298,6 +298,232 @@ def set_viz_type(metric_name: str, viz_type: str) -> dict:
         return {"status": "error", "message": f"Metric '{metric_name}' not found"}
     return {"status": "ok", "metric_name": metric_name, "viz_type": viz_type}
 
+# ── Tool 10: Set goal ─────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def set_goal(metric_name: str, target_value: float, target_direction: str) -> dict:
+    """Set or update a daily goal for a metric.
+
+    The scheduler/agent calls update_streak nightly to track consecutive days
+    of meeting the goal. Use check_level_up to detect when the user is ready
+    for a harder target.
+
+    Args:
+        metric_name: The snake_case metric name (must already exist)
+        target_value: The daily target (e.g. 10 for push-ups, 8000 for steps)
+        target_direction: 'gte' (at least X) or 'lte' (at most X)
+    """
+    if target_direction not in ("gte", "lte"):
+        return {"status": "error", "message": "target_direction must be 'gte' or 'lte'"}
+
+    mt = db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (metric_name,))
+    if not mt:
+        return {"status": "error", "message": f"Metric '{metric_name}' not found"}
+
+    db.execute(
+        """INSERT INTO metric_goals (metric_type_id, target_value, target_direction)
+           VALUES (?, ?, ?)
+           ON CONFLICT (metric_type_id)
+           DO UPDATE SET target_value = excluded.target_value,
+                         target_direction = excluded.target_direction,
+                         updated_at = datetime('now')""",
+        (mt["id"], target_value, target_direction),
+    )
+
+    # Initialize streak if not exists
+    db.execute(
+        """INSERT OR IGNORE INTO streaks (metric_type_id, current_streak, longest_streak)
+           VALUES (?, 0, 0)""",
+        (mt["id"],),
+    )
+
+    logger.info("Set goal for %s: %s %s", metric_name, target_direction, target_value)
+    return {
+        "status": "ok",
+        "metric_name": metric_name,
+        "target_value": target_value,
+        "target_direction": target_direction,
+    }
+
+
+# ── Tool 11: Get goals ───────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def get_goals() -> list[dict]:
+    """Return all active goals with their current streak data.
+
+    Each result includes: metric_name, display_name, target_value,
+    target_direction, current_streak, longest_streak, last_active_date,
+    and suggested_next (if a level-up has been computed).
+    """
+    return db.fetch_all("""
+        SELECT mt.name AS metric_name, mt.display_name, mt.unit,
+               mg.target_value, mg.target_direction, mg.suggested_next,
+               COALESCE(s.current_streak, 0) AS current_streak,
+               COALESCE(s.longest_streak, 0) AS longest_streak,
+               s.last_active_date
+        FROM metric_goals mg
+        JOIN metric_types mt ON mg.metric_type_id = mt.id
+        LEFT JOIN streaks s ON s.metric_type_id = mt.id
+        ORDER BY mt.name
+    """)
+
+
+# ── Tool 12: Update streak ───────────────────────────────────────────────────
+
+
+@mcp.tool()
+def update_streak(metric_name: str, date: str) -> dict:
+    """Recompute the streak for a metric on a given date.
+
+    Call this nightly from the scheduler for each metric that has a goal.
+    Checks if there's a reading on the given date that meets the goal target.
+    If yes → increment streak; if no → reset streak to 0.
+
+    Args:
+        metric_name: The snake_case metric name
+        date: The date to check (YYYY-MM-DD)
+    """
+    mt = db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (metric_name,))
+    if not mt:
+        return {"status": "error", "message": f"Metric '{metric_name}' not found"}
+
+    goal = db.fetch_one(
+        "SELECT target_value, target_direction FROM metric_goals WHERE metric_type_id = ?",
+        (mt["id"],),
+    )
+    if not goal:
+        return {"status": "error", "message": f"No goal set for '{metric_name}'"}
+
+    # Check readings for the given date
+    reading = db.fetch_one(
+        """SELECT value FROM metric_readings
+           WHERE metric_type_id = ? AND DATE(timestamp) = ?
+           ORDER BY value DESC LIMIT 1""",
+        (mt["id"], date),
+    )
+
+    met_goal = False
+    if reading and reading["value"] is not None:
+        if goal["target_direction"] == "gte":
+            met_goal = reading["value"] >= goal["target_value"]
+        else:
+            met_goal = reading["value"] <= goal["target_value"]
+
+    streak = db.fetch_one(
+        "SELECT current_streak, longest_streak, last_active_date FROM streaks WHERE metric_type_id = ?",
+        (mt["id"],),
+    )
+
+    current = streak["current_streak"] if streak else 0
+    longest = streak["longest_streak"] if streak else 0
+
+    if met_goal:
+        current += 1
+        if current > longest:
+            longest = current
+        last_active = date
+    else:
+        current = 0
+        last_active = streak["last_active_date"] if streak else None
+
+    db.execute(
+        """INSERT INTO streaks (metric_type_id, current_streak, longest_streak, last_active_date, updated_at)
+           VALUES (?, ?, ?, ?, datetime('now'))
+           ON CONFLICT (metric_type_id)
+           DO UPDATE SET current_streak = excluded.current_streak,
+                         longest_streak = excluded.longest_streak,
+                         last_active_date = excluded.last_active_date,
+                         updated_at = datetime('now')""",
+        (mt["id"], current, longest, last_active),
+    )
+
+    return {
+        "status": "ok",
+        "metric_name": metric_name,
+        "date": date,
+        "met_goal": met_goal,
+        "reading_value": reading["value"] if reading else None,
+        "current_streak": current,
+        "longest_streak": longest,
+    }
+
+
+# ── Tool 13: Check level-up ──────────────────────────────────────────────────
+
+
+@mcp.tool()
+def check_level_up(metric_name: str) -> dict:
+    """Check if a metric qualifies for a goal level-up.
+
+    A level-up is suggested when the user's 7-day average exceeds the goal
+    target by ≥ 20% for 7 consecutive qualifying days.
+
+    Args:
+        metric_name: The snake_case metric name
+    """
+    mt = db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (metric_name,))
+    if not mt:
+        return {"status": "error", "message": f"Metric '{metric_name}' not found"}
+
+    goal = db.fetch_one(
+        "SELECT target_value, target_direction FROM metric_goals WHERE metric_type_id = ?",
+        (mt["id"],),
+    )
+    if not goal:
+        return {"status": "error", "message": f"No goal set for '{metric_name}'"}
+
+    streak = db.fetch_one(
+        "SELECT current_streak FROM streaks WHERE metric_type_id = ?",
+        (mt["id"],),
+    )
+    if not streak or streak["current_streak"] < 7:
+        return {
+            "status": "ok",
+            "level_up": False,
+            "reason": f"Current streak ({streak['current_streak'] if streak else 0}) < 7 days",
+        }
+
+    # Get last 7 readings
+    readings = db.fetch_all(
+        """SELECT value FROM metric_readings
+           WHERE metric_type_id = ?
+           ORDER BY timestamp DESC LIMIT 7""",
+        (mt["id"],),
+    )
+
+    if len(readings) < 7:
+        return {"status": "ok", "level_up": False, "reason": "Not enough readings (< 7)"}
+
+    avg_val = sum(r["value"] for r in readings) / len(readings)
+    target = goal["target_value"]
+    threshold = target * 1.20
+
+    if goal["target_direction"] == "gte":
+        qualifies = avg_val >= threshold
+    else:
+        qualifies = avg_val <= target * 0.80  # For 'lte', exceeding by 20% means going 20% lower
+
+    suggested = round(avg_val, 2)
+
+    if qualifies:
+        # Store the suggestion
+        db.execute(
+            "UPDATE metric_goals SET suggested_next = ? WHERE metric_type_id = ?",
+            (suggested, mt["id"]),
+        )
+
+    return {
+        "status": "ok",
+        "level_up": qualifies,
+        "current_target": target,
+        "seven_day_avg": round(avg_val, 2),
+        "threshold_needed": round(threshold, 2),
+        "suggested_next": suggested if qualifies else None,
+    }
+
 
 # ── Entry point ──────────────────────────────────────────────────────────
 

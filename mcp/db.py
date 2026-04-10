@@ -70,6 +70,24 @@ def init_db() -> None:
             updated_at  TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS metric_goals (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            metric_type_id   INTEGER REFERENCES metric_types(id) UNIQUE,
+            target_value     REAL NOT NULL,
+            target_direction TEXT NOT NULL CHECK (target_direction IN ('gte', 'lte')),
+            suggested_next   REAL,
+            updated_at       TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS streaks (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            metric_type_id   INTEGER REFERENCES metric_types(id) UNIQUE,
+            current_streak   INTEGER DEFAULT 0,
+            longest_streak   INTEGER DEFAULT 0,
+            last_active_date TEXT,
+            updated_at       TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE INDEX IF NOT EXISTS idx_readings_metric_type   ON metric_readings(metric_type_id);
         CREATE INDEX IF NOT EXISTS idx_readings_timestamp      ON metric_readings(timestamp);
         CREATE INDEX IF NOT EXISTS idx_readings_metric_ts_desc ON metric_readings(metric_type_id, timestamp DESC);

@@ -143,5 +143,60 @@ db.execute(
 )
 print(f"  ✓ Weekly insight generated for week of {week_start}")
 
+# ── Sample goals & streaks ────────────────────────────────────────────────────
+
+goals = [
+    # (metric_name, target_value, target_direction)
+    ("pushups", 25, "gte"),
+    ("steps", 8000, "gte"),
+    ("water_intake_liters", 2.0, "gte"),
+    ("caffeine_cups", 3, "lte"),
+]
+
+for g_name, g_target, g_dir in goals:
+    mt = db.fetch_one("SELECT id FROM metric_types WHERE name = ?", (g_name,))
+    if mt:
+        db.execute(
+            """INSERT OR REPLACE INTO metric_goals (metric_type_id, target_value, target_direction)
+               VALUES (?, ?, ?)""",
+            (mt["id"], g_target, g_dir),
+        )
+
+        # Compute streaks from existing readings
+        current_streak = 0
+        longest_streak = 0
+        last_active = None
+        for day_offset in range(30):
+            check_date = (now - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+            reading = db.fetch_one(
+                "SELECT value FROM metric_readings WHERE metric_type_id = ? AND DATE(timestamp) = ? ORDER BY value DESC LIMIT 1",
+                (mt["id"], check_date),
+            )
+            if reading and reading["value"] is not None:
+                if g_dir == "gte":
+                    met = reading["value"] >= g_target
+                else:
+                    met = reading["value"] <= g_target
+                if met:
+                    if day_offset == 0 or current_streak > 0:
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                    last_active = check_date
+                else:
+                    break  # streak broken
+            else:
+                if g_name not in ("pushups", "running_distance"):  # intermittent can skip
+                    break
+
+        longest_streak = max(current_streak, longest_streak)
+        db.execute(
+            """INSERT OR REPLACE INTO streaks (metric_type_id, current_streak, longest_streak, last_active_date)
+               VALUES (?, ?, ?, ?)""",
+            (mt["id"], current_streak, longest_streak, last_active),
+        )
+
+print(f"  ✓ {len(goals)} goals set with computed streaks")
+
 print("\n✅ Test data population complete!")
 print(f"   Database: {db.DB_PATH}")
