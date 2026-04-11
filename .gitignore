@@ -1,17 +1,12 @@
-.env
+# Local runtime artifacts
+mcp/omnitrack.db
+mcp/omnitrack.db-wal
+mcp/omnitrack.db-shm
+run_*.log
+run_*.pid
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
-venv/
-*.egg-info/
-dist/
-build/
-.idea/
-.vscode/
-*.swp
-*.swo
-*.db
-*.sqlite3
-Thumbs.db
-.DS_Store
