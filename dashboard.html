@@ -172,6 +172,13 @@
             margin-top: 8px;
             color: var(--text-muted);
         }
+        .stat-updated {
+            font-size: 11px;
+            margin-top: 6px;
+            color: var(--text-muted);
+            opacity: 0.9;
+        }
+        .stat-updated.stale { color: var(--accent-amber); }
         .stat-range .safe { color: var(--safe-green); }
         .stat-range .danger { color: var(--danger-red); }
         .stat-status {
@@ -595,9 +602,14 @@
             container.innerHTML = filtered.map(m => {
                 const status = getStatus(m.value, m.safe_min, m.safe_max);
                 const isSelected = selectedMetric === m.name;
+                const updated = m.timestamp ? new Date(m.timestamp) : null;
+                const ageMs = updated ? (Date.now() - updated.getTime()) : null;
+                const isStale = ageMs != null && ageMs > 7 * 24 * 3600 * 1000;
+                const updatedText = updated ? `Updated ${formatRelativeTime(ageMs)} ago` : 'Updated —';
                 const rangeHtml = (m.safe_min != null || m.safe_max != null)
                     ? `<div class="stat-range">Safe: <span class="safe">${m.safe_min ?? '\u2014'}\u2013${m.safe_max ?? '\u2014'}</span></div>`
                     : '';
+                const updatedHtml = `<div class="stat-updated ${isStale ? 'stale' : ''}">${updatedText}</div>`;
                 const vizIcon = m.viz_type === 'bar' ? '\u2581\u2583\u2585' : m.viz_type === 'line' ? '\u301C' : '\u2026';
                 const vizLabel = m.viz_type === 'bar' ? 'Bar' : m.viz_type === 'line' ? 'Line' : 'Pending';
                 return `
@@ -612,9 +624,22 @@
                             <span class="stat-unit">${m.unit || ''}</span>
                         </div>
                         ${rangeHtml}
+                        ${updatedHtml}
                     </div>
                 `;
             }).join('');
+        }
+
+        function formatRelativeTime(ms) {
+            if (ms == null || ms < 0) return '\u2014';
+            const s = Math.floor(ms / 1000);
+            const m = Math.floor(s / 60);
+            const h = Math.floor(m / 60);
+            const d = Math.floor(h / 24);
+            if (d > 0) return `${d}d`;
+            if (h > 0) return `${h}h`;
+            if (m > 0) return `${m}m`;
+            return `${s}s`;
         }
 
         function formatValue(v) {

@@ -33,28 +33,40 @@ class DashboardAPI(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        # CORS headers
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-
         try:
             if path == "/api/latest":
-                data = db.fetch_all("""
-                    SELECT mt.name, mt.display_name, mt.unit, mt.category, mt.viz_type,
-                           mr.value, mr.timestamp, mr.notes,
-                           sr.min_value AS safe_min, sr.max_value AS safe_max
-                    FROM metric_readings mr
-                    JOIN metric_types mt ON mr.metric_type_id = mt.id
-                    LEFT JOIN safe_ranges sr ON sr.metric_name = mt.name
-                    WHERE mr.id IN (
-                        SELECT mr2.id FROM metric_readings mr2
-                        GROUP BY mr2.metric_type_id
-                        HAVING mr2.timestamp = MAX(mr2.timestamp)
+                # Optional category filter
+                category = params.get("category", [None])[0]
+                filter_clause = "WHERE l.rn = 1"
+                args = ()
+                if category and category != "all":
+                    filter_clause = "WHERE mt.category = ? AND l.rn = 1"
+                    args = (category,)
+
+                # Correctly pick the latest row per metric_type_id, even when timestamps tie.
+                data = db.fetch_all(
+                    f"""
+                    WITH latest AS (
+                        SELECT
+                            mr.*,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY mr.metric_type_id
+                                ORDER BY mr.timestamp DESC, mr.id DESC
+                            ) AS rn
+                        FROM metric_readings mr
                     )
+                    SELECT
+                        mt.name, mt.display_name, mt.unit, mt.category, mt.viz_type,
+                        l.value, l.timestamp, l.notes,
+                        sr.min_value AS safe_min, sr.max_value AS safe_max
+                    FROM latest l
+                    JOIN metric_types mt ON l.metric_type_id = mt.id
+                    LEFT JOIN safe_ranges sr ON sr.metric_name = mt.name
+                    {filter_clause}
                     ORDER BY mt.category, mt.name
-                """)
+                    """,
+                    args,
+                )
             elif path == "/api/metrics":
                 data = db.fetch_all(
                     "SELECT name, display_name, unit, category, viz_type FROM metric_types ORDER BY category, name"
@@ -113,8 +125,16 @@ class DashboardAPI(BaseHTTPRequestHandler):
             else:
                 data = {"error": "Unknown endpoint"}
 
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
             self.wfile.write(json.dumps(data, default=str).encode())
         except Exception as e:
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}).encode())
 
     def do_OPTIONS(self):
