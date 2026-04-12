@@ -122,6 +122,18 @@ class DashboardAPI(BaseHTTPRequestHandler):
                     except Exception:
                         row["metrics_involved"] = []
                 data = rows
+            elif path == "/api/health":
+                stats = db.fetch_one(
+                    """SELECT
+                           (SELECT COUNT(*) FROM metric_types) AS metric_types,
+                           (SELECT COUNT(*) FROM metric_readings) AS readings,
+                           (SELECT COUNT(*) FROM insights) AS insights,
+                           (SELECT COUNT(*) FROM correlations) AS correlations,
+                           (SELECT COUNT(*) FROM metric_goals) AS goals,
+                           (SELECT COUNT(*) FROM streaks) AS streaks
+                       """
+                ) or {}
+                data = {"ok": True, "db": True, **stats}
             else:
                 data = {"error": "Unknown endpoint"}
 
@@ -153,5 +165,5 @@ if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", port), DashboardAPI)
     print(f"Dashboard API running on http://localhost:{port}")
     print(f"Dashboard: http://localhost:{port}/dashboard.html")
-    print("Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity")
+    print("Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity, /api/health")
     server.serve_forever()

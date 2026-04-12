@@ -493,13 +493,8 @@
             </div>
         </div>
 
-        <!-- Category Tabs -->
-        <div class="category-tabs" id="categoryTabs">
-            <button class="cat-tab active" data-cat="all">All Metrics</button>
-            <button class="cat-tab" data-cat="biometric">Biometric</button>
-            <button class="cat-tab" data-cat="behavioral">Behavioral</button>
-            <button class="cat-tab" data-cat="financial">Financial</button>
-        </div>
+        <!-- Category Tabs (dynamic) -->
+        <div class="category-tabs" id="categoryTabs"></div>
 
         <!-- Stat Cards -->
         <div class="stat-row" id="statRow">
@@ -824,13 +819,42 @@
             }
         }
 
-        // ── Category tabs ───────────────────────────────────────────────────
+        // ── Category tabs (dynamic) ───────────────────────────────────────
+        function renderCategoryTabs() {
+            const el = document.getElementById('categoryTabs');
+            const counts = { all: allLatest.length };
+            for (const m of allLatest) {
+                counts[m.category] = (counts[m.category] || 0) + 1;
+            }
+
+            // Keep consistent ordering when present
+            const order = ['biometric', 'behavioral', 'financial', 'custom', 'context'];
+            const cats = Object.keys(counts)
+                .filter(c => c !== 'all')
+                .sort((a,b) => order.indexOf(a) - order.indexOf(b));
+
+            const btn = (cat, label, isActive) => {
+                const n = counts[cat] ?? 0;
+                return `<button class="cat-tab ${isActive ? 'active' : ''}" data-cat="${cat}">${label} (${n})</button>`;
+            };
+
+            const labels = {
+                biometric: 'Biometric',
+                behavioral: 'Behavioral',
+                financial: 'Financial',
+                custom: 'Custom',
+                context: 'Context',
+            };
+
+            el.innerHTML = btn('all', 'All Metrics', activeCategory === 'all') +
+                cats.map(c => btn(c, labels[c] || c, activeCategory === c)).join('');
+        }
+
         document.getElementById('categoryTabs').addEventListener('click', (e) => {
             const tab = e.target.closest('.cat-tab');
             if (!tab) return;
-            document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
             activeCategory = tab.dataset.cat;
+            renderCategoryTabs();
             renderCards();
         });
 
@@ -901,6 +925,7 @@
         async function init() {
             try {
                 allLatest = await fetchJSON(`${API}/api/latest`);
+                renderCategoryTabs();
                 renderCards();
 
                 // Auto-select first metric
