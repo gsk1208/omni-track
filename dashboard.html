@@ -101,6 +101,29 @@
             font-size: 13px;
             color: var(--safe-green);
         }
+
+        .status-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .api-link {
+            font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 11px;
+            color: var(--text-muted);
+            background: transparent;
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            border-radius: 18px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .api-link:hover {
+            color: var(--text-primary);
+            border-color: rgba(59,130,246,0.35);
+        }
         .status-dot {
             width: 8px; height: 8px;
             background: var(--safe-green);
@@ -487,9 +510,12 @@
                 <h1>Omni-Track</h1>
                 <div class="subtitle">Life Operating System &mdash; Personal Metrics Dashboard</div>
             </div>
-            <div class="status-badge">
-                <div class="status-dot"></div>
-                <span>MCP Server Live</span>
+            <div class="status-stack">
+                <div class="status-badge">
+                    <div class="status-dot"></div>
+                    <span>MCP Server Live</span>
+                </div>
+                <button class="api-link" id="apiLink" title="Click to change the API base URL"></button>
             </div>
         </div>
 
@@ -508,6 +534,10 @@
                     <div class="chart-title" id="chartTitle">Select a metric to view trends</div>
                     <div class="chart-subtitle" id="chartSubtitle">Click any card above</div>
                 </div>
+                <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:12px;user-select:none;">
+                    <input type="checkbox" id="toggleForecast" style="accent-color: var(--accent-blue);" />
+                    Show forecast (7d)
+                </label>
             </div>
             <div class="chart-container">
                 <canvas id="trendChart"></canvas>
@@ -547,12 +577,33 @@
     </div>
 
     <script>
-        const API = (() => { const p = location.port; return `http://localhost:${p || 8001}`; })();
+        function getApiBase() {
+            const params = new URLSearchParams(location.search);
+            const fromQuery = params.get('api');
+            const fromStorage = localStorage.getItem('omniTrackApiBase');
+            const fromPort = location.port ? `http://localhost:${location.port}` : null;
+            return (fromQuery || fromStorage || fromPort || 'http://localhost:8090').replace(/\/$/, '');
+        }
+
+        const API = getApiBase();
         let trendChart = null;
         let activityChart = null;
         let allLatest = [];
         let selectedMetric = null;
         let activeCategory = 'all';
+
+        // Header: show API base + allow quick override
+        (function initApiLink() {
+            const el = document.getElementById('apiLink');
+            if (!el) return;
+            el.textContent = `API: ${API}`;
+            el.addEventListener('click', () => {
+                const next = prompt('Dashboard API base URL (e.g. http://localhost:8090)', API);
+                if (!next) return;
+                localStorage.setItem('omniTrackApiBase', next.trim().replace(/\/$/, ''));
+                location.reload();
+            });
+        })();
 
         // ── Color palette for categories ─────────────────────────────────────
         const catColors = {
@@ -644,10 +695,55 @@
             return parseFloat(v.toFixed(1));
         }
 
-        // ── Select metric & draw trend ──────────────────────────────────────
+        // ── Forecast helpers (Phase 1) ─────────────────────────────────────
+        function toDayKey(dt) {
+            const d = new Date(dt);
+            d.setHours(0,0,0,0);
+            return d.toISOString().slice(0,10);
+        }
+
+        function aggregateDaily(readings) {
+            const m = new Map();
+            for (const r of readings) {
+                if (r.value == null) continue;
+                const day = toDayKey(r.timestamp);
+                m.set(day, (m.get(day) || 0) + Number(r.value));
+            }
+            const days = [...m.keys()].sort();
+            return days.map(day => ({ x: new Date(day + 'T00:00:00'), y: m.get(day) }));
+        }
+
+        function mean(arr) {
+            if (!arr.length) return null;
+            return arr.reduce((a,b) => a + b, 0) / arr.length;
+        }
+
+        function buildForecast(dailySeries, daysAhead=7, window=7) {
+            const ys = dailySeries.map(d => d.y);
+            const base = mean(ys.slice(-window));
+            if (base == null) return [];
+            const lastX = dailySeries.length ? new Date(dailySeries[dailySeries.length-1].x) : new Date();
+            const out = [];
+            for (let i=1;i<=daysAhead;i++) {
+                const x = new Date(lastX);
+                x.setDate(x.getDate() + i);
+                out.push({ x, y: base });
+            }
+            return out;
+        }
+
+        // ── Select metric & draw trend ─────────────────────────────────────
         async function selectMetric(name) {
             selectedMetric = name;
             renderCards();
+            // ensure toggle exists and redraws current metric
+            const toggle = document.getElementById('toggleForecast');
+            if (toggle && !toggle._bound) {
+                toggle._bound = true;
+                toggle.addEventListener('change', () => {
+                    if (selectedMetric) selectMetric(selectedMetric);
+                });
+            }
 
             const info = allLatest.find(m => m.name === name);
             document.getElementById('chartTitle').textContent = info ? info.display_name : name;
@@ -659,13 +755,17 @@
         }
 
         function drawTrendChart(readings, info) {
+            const showForecast = document.getElementById('toggleForecast')?.checked;
             const ctx = document.getElementById('trendChart').getContext('2d');
             if (trendChart) trendChart.destroy();
 
-            const data = readings.filter(r => r.value != null).map(r => ({ x: new Date(r.timestamp), y: r.value }));
+            const raw = readings.filter(r => r.value != null).map(r => ({ x: new Date(r.timestamp), y: r.value }));
             const color = catColors[info?.category] || '#3b82f6';
             const vizType = info?.viz_type || 'line';
             const isBar = vizType === 'bar';
+
+            // Use daily aggregation for bar charts, raw points for line charts
+            const data = isBar ? aggregateDaily(readings) : raw;
 
             const datasets = [
                 {
@@ -683,6 +783,23 @@
                     borderSkipped: false,
                 },
             ];
+
+            // Forecast (Phase 1): 7-day rolling average baseline, opt-in via toggle
+            if (showForecast && data.length >= 7) {
+                const fc = buildForecast(data, 7, 7);
+                if (fc.length) {
+                    datasets.push({
+                        label: 'Forecast (7d avg)',
+                        data: fc,
+                        borderColor: '#94a3b8AA',
+                        backgroundColor: 'transparent',
+                        borderDash: [6, 4],
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                    });
+                }
+            }
 
             // Safe range bands (only for line charts)
             if (!isBar && readings.length && readings[0].safe_min != null) {
