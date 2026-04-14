@@ -221,6 +221,49 @@
             margin-bottom: 20px;
             flex-wrap: wrap;
         }
+
+        /* Top controls (tabs + search) */
+        .top-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .search-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .search-input {
+            width: min(420px, 80vw);
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(17, 24, 39, 0.55);
+            color: var(--text-primary);
+            outline: none;
+            transition: all 0.2s ease;
+            font-size: 13px;
+        }
+        .search-input::placeholder { color: var(--text-muted); }
+        .search-input:focus {
+            border-color: rgba(59,130,246,0.6);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+        }
+
+        .metric-count {
+            font-size: 12px;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+            background: rgba(17, 24, 39, 0.35);
+        }
         .cat-tab {
             padding: 8px 20px;
             border-radius: 24px;
@@ -519,8 +562,14 @@
             </div>
         </div>
 
-        <!-- Category Tabs (dynamic) -->
-        <div class="category-tabs" id="categoryTabs"></div>
+        <!-- Category Tabs + Search -->
+        <div class="top-controls">
+            <div class="category-tabs" id="categoryTabs"></div>
+            <div class="search-wrap">
+                <span class="metric-count" id="metricCount">—</span>
+                <input class="search-input" id="metricSearch" placeholder="Search metrics (name, display)" autocomplete="off" />
+            </div>
+        </div>
 
         <!-- Stat Cards -->
         <div class="stat-row" id="statRow">
@@ -591,6 +640,7 @@
         let allLatest = [];
         let selectedMetric = null;
         let activeCategory = 'all';
+        let metricQuery = '';
 
         // Header: show API base + allow quick override
         (function initApiLink() {
@@ -636,12 +686,31 @@
         // ── Render stat cards ────────────────────────────────────────────────
         function renderCards() {
             const container = document.getElementById('statRow');
-            const filtered = activeCategory === 'all'
+            const q = (metricQuery || '').trim().toLowerCase();
+            const filtered = (activeCategory === 'all'
                 ? allLatest
-                : allLatest.filter(m => m.category === activeCategory);
+                : allLatest.filter(m => m.category === activeCategory)
+            ).filter(m => {
+                if (!q) return true;
+                const dn = (m.display_name || '').toLowerCase();
+                const n = (m.name || '').toLowerCase();
+                return dn.includes(q) || n.includes(q);
+            });
+
+            const countEl = document.getElementById('metricCount');
+            if (countEl) {
+                const totalInCat = (activeCategory === 'all')
+                    ? allLatest.length
+                    : allLatest.filter(m => m.category === activeCategory).length;
+                countEl.textContent = q
+                    ? `${filtered.length}/${totalInCat} shown`
+                    : `${filtered.length} metrics`;
+            }
 
             if (!filtered.length) {
-                container.innerHTML = '<div class="loading">No metrics in this category</div>';
+                container.innerHTML = q
+                    ? '<div class="loading">No metrics match your search</div>'
+                    : '<div class="loading">No metrics in this category</div>';
                 return;
             }
 
@@ -974,6 +1043,25 @@
             renderCategoryTabs();
             renderCards();
         });
+
+        // Search (client-side)
+        (function initSearch() {
+            const el = document.getElementById('metricSearch');
+            if (!el) return;
+            el.addEventListener('input', () => {
+                metricQuery = el.value || '';
+                renderCards();
+            });
+
+            // Ctrl/Cmd+K to focus search
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+                    e.preventDefault();
+                    el.focus();
+                    el.select();
+                }
+            });
+        })();
 
         // ── Goals & Streaks ──────────────────────────────────────────────────
         async function loadGoals() {
