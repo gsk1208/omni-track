@@ -188,7 +188,16 @@ class DashboardAPI(BaseHTTPRequestHandler):
                             mode = "other"
                             horizon = 1
 
-                        fc = predict.forecast_baseline(series, horizon)
+                        # Convert horizon to points for weekly/monthly
+                        fc_h = horizon
+                        if mode == "weekly":
+                            fc_h = 3
+                        elif mode == "monthly":
+                            fc_h = 3
+                        elif mode == "other":
+                            fc_h = 1
+
+                        fc = predict.forecast_baseline(series, fc_h, cadence=mode)
 
                         # drivers (daily aligned, using bar aggregation for bars)
                         all_mts = db.fetch_all("SELECT name, viz_type FROM metric_types")
@@ -215,6 +224,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
                             "forecast": {
                                 "model": fc.model,
                                 "horizon": fc.horizon,
+                                "granularity": fc.granularity,
                                 "points": fc.points,
                             },
                             "drivers": drivers,

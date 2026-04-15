@@ -583,10 +583,13 @@
                     <div class="chart-title" id="chartTitle">Select a metric to view trends</div>
                     <div class="chart-subtitle" id="chartSubtitle">Click any card above</div>
                 </div>
-                <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:12px;user-select:none;">
-                    <input type="checkbox" id="toggleForecast" style="accent-color: var(--accent-blue);" />
-                    Show forecast (7d)
-                </label>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:12px;user-select:none;">
+                        <input type="checkbox" id="toggleForecast" style="accent-color: var(--accent-blue);" />
+                        Show forecast
+                    </label>
+                    <span id="forecastMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
+                </div>
             </div>
             <div class="chart-container">
                 <canvas id="trendChart"></canvas>
@@ -825,10 +828,17 @@
                 info ? `${info.category} · ${info.unit || 'no unit'}` : '';
 
             const readings = await fetchJSON(`${API}/api/readings?name=${name}`);
-            drawTrendChart(readings, info);
+            let pred = null;
+            try {
+                pred = await fetchJSON(`${API}/api/predict?name=${name}`);
+            } catch (e) {
+                pred = null;
+            }
+            renderDriverBox(pred);
+            drawTrendChart(readings, info, pred);
         }
 
-        function drawTrendChart(readings, info) {
+        function drawTrendChart(readings, info, pred) {
             const showForecast = document.getElementById('toggleForecast')?.checked;
             const ctx = document.getElementById('trendChart').getContext('2d');
             if (trendChart) trendChart.destroy();
@@ -858,15 +868,44 @@
                 },
             ];
 
-            // Forecast (Phase 1): 7-day rolling average baseline, opt-in via toggle
-            if (showForecast && data.length >= 7) {
-                const fc = buildForecast(data, 7, 7);
-                if (fc.length) {
+            // Forecast overlay (Predictive Analysis): server-side forecast + confidence band
+            const metaEl = document.getElementById('forecastMeta');
+            if (metaEl) metaEl.textContent = '';
+
+            if (showForecast) {
+                if (!pred || pred.error) {
+                    if (metaEl) metaEl.textContent = 'Need more data';
+                } else if (!pred.forecast || !pred.forecast.points || !pred.forecast.points.length) {
+                    if (metaEl) metaEl.textContent = 'Need more data';
+                } else {
+                    const gran = pred.forecast.granularity || pred.cadence || 'daily';
+                    if (metaEl) metaEl.textContent = `${gran} · ${pred.forecast.horizon} pts`;
+
+                    const fcPts = pred.forecast.points.map(p => ({ x: new Date(p.timestamp), y: p.value, low: p.low, high: p.high }));
+
+                    // Confidence band (area between high and low)
                     datasets.push({
-                        label: 'Forecast (7d avg)',
-                        data: fc,
-                        borderColor: '#94a3b8AA',
-                        backgroundColor: 'transparent',
+                        label: 'Forecast High',
+                        data: fcPts.map(p => ({ x: p.x, y: p.high })),
+                        borderColor: 'transparent',
+                        backgroundColor: '#94a3b822',
+                        pointRadius: 0,
+                        fill: '+1',
+                    });
+                    datasets.push({
+                        label: 'Forecast Low',
+                        data: fcPts.map(p => ({ x: p.x, y: p.low })),
+                        borderColor: 'transparent',
+                        pointRadius: 0,
+                        fill: false,
+                    });
+
+                    // Dashed forecast line/bars
+                    datasets.push({
+                        label: 'Forecast',
+                        data: fcPts.map(p => ({ x: p.x, y: p.y })),
+                        borderColor: '#94a3b8CC',
+                        backgroundColor: isBar ? '#94a3b855' : 'transparent',
                         borderDash: [6, 4],
                         borderWidth: 2,
                         pointRadius: 0,
@@ -1215,6 +1254,20 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        // Predictive: render driver snippets (mini correlation view)
+        function renderDriverBox(pred) {
+            // lightweight: show top drivers in subtitle area
+            const sub = document.getElementById('chartSubtitle');
+            if (!sub) return;
+            const base = sub.textContent.split(' · Drivers:')[0];
+            if (!pred || !pred.drivers || !pred.drivers.length) {
+                sub.textContent = base;
+                return;
+            }
+            const drivers = pred.drivers.slice(0, 3).map(d => `${d.metric} (${(d.score*100).toFixed(0)}%)`).join(', ');
+            sub.textContent = `${base} · Drivers: ${drivers}`;
         }
 
         // ── Init ────────────────────────────────────────────────────────────
