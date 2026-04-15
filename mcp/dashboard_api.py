@@ -11,6 +11,7 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
 import db
+import predict
 
 
 class DashboardAPI(BaseHTTPRequestHandler):
@@ -134,6 +135,90 @@ class DashboardAPI(BaseHTTPRequestHandler):
                        """
                 ) or {}
                 data = {"ok": True, "db": True, **stats}
+            elif path == "/api/predict":
+                name = params.get("name", [None])[0]
+                if not name:
+                    data = {"error": "name parameter required"}
+                else:
+                    # Pull target metric meta
+                    mt = db.fetch_one(
+                        "SELECT name, display_name, unit, category, viz_type FROM metric_types WHERE name = ?",
+                        (name,),
+                    )
+                    if not mt:
+                        data = {"error": "unknown metric"}
+                    else:
+                        # horizon rules
+                        # daily-changing -> 7 days
+                        # weekly/monthly-changing -> 3 weeks/months (we approximate as 21/90 days)
+                        # other -> 1 point
+                        # We detect by cadence in the last 60 points.
+                        readings = db.fetch_all(
+                            """SELECT mr.value, mr.timestamp
+                               FROM metric_readings mr
+                               JOIN metric_types mt ON mr.metric_type_id = mt.id
+                               WHERE mt.name = ?
+                               ORDER BY mr.timestamp ASC""",
+                            (name,),
+                        )
+                        series = predict.as_series(readings, mt.get("viz_type") or "line")
+                        # cadence detection
+                        horizon = 7
+                        mode = "daily"
+                        if len(series) >= 6:
+                            # median delta days across last 10 intervals
+                            dts = [series[i][0] for i in range(max(0, len(series) - 11), len(series))]
+                            deltas = []
+                            for i in range(1, len(dts)):
+                                deltas.append((dts[i] - dts[i-1]).days or 0)
+                            deltas = [d for d in deltas if d > 0]
+                            if deltas:
+                                deltas.sort()
+                                med = deltas[len(deltas)//2]
+                                if med >= 25:
+                                    mode = "monthly"
+                                    horizon = 90  # ~3 months
+                                elif med >= 6:
+                                    mode = "weekly"
+                                    horizon = 21  # ~3 weeks
+                                elif med >= 2:
+                                    mode = "other"
+                                    horizon = 1
+                        else:
+                            mode = "other"
+                            horizon = 1
+
+                        fc = predict.forecast_baseline(series, horizon)
+
+                        # drivers (daily aligned, using bar aggregation for bars)
+                        all_mts = db.fetch_all("SELECT name, viz_type FROM metric_types")
+                        others = {}
+                        for row in all_mts:
+                            n = row["name"]
+                            if n == name:
+                                continue
+                            r = db.fetch_all(
+                                """SELECT mr.value, mr.timestamp
+                                   FROM metric_readings mr
+                                   JOIN metric_types mt ON mr.metric_type_id = mt.id
+                                   WHERE mt.name = ?
+                                   ORDER BY mr.timestamp ASC""",
+                                (n,),
+                            )
+                            others[n] = predict.as_series(r, row.get("viz_type") or "line")
+
+                        drivers = predict.driver_scores(name, series, others)
+
+                        data = {
+                            "metric": mt,
+                            "cadence": mode,
+                            "forecast": {
+                                "model": fc.model,
+                                "horizon": fc.horizon,
+                                "points": fc.points,
+                            },
+                            "drivers": drivers,
+                        }
             else:
                 data = {"error": "Unknown endpoint"}
 
