@@ -615,6 +615,11 @@
                 <div class="section-title"><span class="icon">🧠</span> Weekly Insight</div>
                 <div class="insight-content" id="insightContent">Loading...</div>
                 <div class="insight-week" id="insightWeek"></div>
+
+                <div style="margin-top:12px">
+                    <div class="section-title" style="margin:0 0 8px 0"><span class="icon">🧾</span> Metric summary</div>
+                    <div id="metricSummary" class="corr-list" style="display:grid;gap:10px"></div>
+                </div>
             </div>
             <div class="activity-panel">
                 <div class="section-title"><span class="icon">📊</span> Ingestion Activity</div>
@@ -1005,6 +1010,92 @@
             }
         }
 
+        // ── Metric narrative summaries (Phase 2 option #2) ───────────────────
+        function summarizeSeries(readings, vizType) {
+            // For bars: use daily aggregated totals, for line: use raw points
+            const series = (vizType === 'bar') ? aggregateDaily(readings) : readings
+                .filter(r => r.value != null)
+                .map(r => ({ x: new Date(r.timestamp), y: Number(r.value) }));
+
+            if (series.length < 7) return null;
+
+            // Sort by time
+            series.sort((a,b) => a.x - b.x);
+
+            const ys = series.map(p => p.y);
+            const last = ys[ys.length-1];
+            const prev = ys[ys.length-2];
+            const minV = Math.min(...ys);
+            const maxV = Math.max(...ys);
+
+            const window = 30;
+            const n = ys.length;
+            const recent = ys.slice(Math.max(0, n - window));
+            const avg = recent.reduce((a,b)=>a+b,0) / recent.length;
+
+            // simple slope over recent window (end-start)
+            const start = recent[0];
+            const end = recent[recent.length-1];
+            const slope = end - start;
+
+            const change = (prev != null) ? (last - prev) : 0;
+
+            return { last, change, avg, minV, maxV, slope, points: series.length };
+        }
+
+        function fmt(v) {
+            if (v == null || Number.isNaN(v)) return '—';
+            if (Math.abs(v) >= 10000) return v.toLocaleString('en-IN');
+            if (Number.isInteger(v)) return String(v);
+            return String(parseFloat(v.toFixed(1)));
+        }
+
+        function trendWord(slope) {
+            const a = Math.abs(slope);
+            if (a < 1e-6) return 'flat';
+            return slope > 0 ? 'up' : 'down';
+        }
+
+        async function loadMetricSummaries() {
+            const container = document.getElementById('metricSummary');
+            if (!container) return;
+
+            // take a small set: top 6 most-recently updated metrics
+            const sorted = [...allLatest].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+            const top = sorted.slice(0, 6);
+
+            const cards = [];
+            for (const m of top) {
+                try {
+                    const readings = await fetchJSON(`${API}/api/readings?name=${m.name}`);
+                    const s = summarizeSeries(readings, m.viz_type || 'line');
+                    if (!s) continue;
+
+                    const unit = m.unit ? ` ${m.unit}` : '';
+                    const slopeTxt = trendWord(s.slope);
+                    const delta = s.change;
+                    const deltaTxt = (delta === 0) ? '0' : (delta > 0 ? `+${fmt(delta)}` : `${fmt(delta)}`);
+
+                    cards.push(`
+                      <div class="corr-card" style="padding:14px">
+                        <div class="corr-header" style="margin-bottom:8px">
+                          <div class="corr-metrics">${m.display_name || m.name}</div>
+                          <div class="corr-confidence ${slopeTxt === 'up' ? 'high' : slopeTxt === 'down' ? 'medium' : 'speculative'}">${slopeTxt}</div>
+                        </div>
+                        <div class="corr-pattern" style="color:var(--text-secondary)">
+                          Last: <strong>${fmt(s.last)}${unit}</strong> (${deltaTxt}${unit} vs prev) · 30d avg: <strong>${fmt(s.avg)}${unit}</strong><br>
+                          Range: ${fmt(s.minV)}${unit} → ${fmt(s.maxV)}${unit} · Points: ${s.points}
+                        </div>
+                      </div>
+                    `);
+                } catch (e) {
+                    // ignore individual failures
+                }
+            }
+
+            container.innerHTML = cards.length ? cards.join('') : '<div class="goals-empty">Not enough data yet to summarize.</div>';
+        }
+
         // ── Category tabs (dynamic) ───────────────────────────────────────
         function renderCategoryTabs() {
             const el = document.getElementById('categoryTabs');
@@ -1139,6 +1230,7 @@
                 }
 
                 await loadInsight();
+                await loadMetricSummaries();
                 await loadActivity();
                 await loadGoals();
                 await loadCorrelations();
