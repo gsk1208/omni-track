@@ -135,12 +135,54 @@
             50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
         }
 
-        /* Stat cards row */
+        /* Metrics + Summary row */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 16px;
+            align-items: start;
+            margin-bottom: 28px;
+        }
+        @media (max-width: 1100px) {
+            .metrics-row { grid-template-columns: 1fr; }
+        }
+
+        /* Stat cards grid */
         .stat-row {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
-            margin-bottom: 28px;
+            margin-bottom: 0;
+        }
+
+        /* Metric summary sidebar */
+        .metric-summary-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            height: 100%;
+            min-height: 540px; /* ~3 cells height */
+            max-height: 740px;
+            overflow: auto;
+        }
+        .metric-summary-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .metric-summary-header .title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .metric-summary-hint {
+            font-size: 11px;
+            color: var(--text-muted);
         }
         .stat-card {
             background: var(--bg-card);
@@ -571,9 +613,20 @@
             </div>
         </div>
 
-        <!-- Stat Cards -->
-        <div class="stat-row" id="statRow">
-            <div class="loading"><div class="spinner"></div>Loading metrics...</div>
+        <!-- Metrics grid + Metric summary (side-by-side) -->
+        <div class="metrics-row">
+            <div>
+                <div class="stat-row" id="statRow">
+                    <div class="loading"><div class="spinner"></div>Loading metrics...</div>
+                </div>
+            </div>
+            <div class="metric-summary-panel">
+                <div class="metric-summary-header">
+                    <div class="title"><span class="icon">🧾</span> Metric summary</div>
+                    <div class="metric-summary-hint">Scroll</div>
+                </div>
+                <div id="metricSummary" style="display:grid;gap:10px"></div>
+            </div>
         </div>
 
         <!-- Time-series Chart -->
@@ -616,10 +669,6 @@
                 <div class="insight-content" id="insightContent">Loading...</div>
                 <div class="insight-week" id="insightWeek"></div>
 
-                <div style="margin-top:12px">
-                    <div class="section-title" style="margin:0 0 8px 0"><span class="icon">🧾</span> Metric summary</div>
-                    <div id="metricSummary" class="corr-list" style="display:grid;gap:10px"></div>
-                </div>
             </div>
             <div class="activity-panel">
                 <div class="section-title"><span class="icon">📊</span> Ingestion Activity</div>
