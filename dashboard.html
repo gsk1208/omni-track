@@ -140,9 +140,10 @@
             display: grid;
             grid-template-columns: 1fr 380px;
             gap: 16px;
-            align-items: start;
+            align-items: stretch;
             margin-bottom: 28px;
         }
+        .metrics-row > * { min-height: 0; }
         @media (max-width: 1100px) {
             .metrics-row { grid-template-columns: 1fr; }
         }
@@ -162,8 +163,6 @@
             border-radius: var(--radius);
             padding: 16px;
             height: 100%;
-            min-height: 540px; /* ~3 cells height */
-            max-height: 740px;
             overflow: auto;
         }
         .metric-summary-header {
@@ -614,7 +613,7 @@
         </div>
 
         <!-- Metrics grid + Metric summary (side-by-side) -->
-        <div class="metrics-row">
+        <div class="metrics-row" id="metricsRow">
             <div>
                 <div class="stat-row" id="statRow">
                     <div class="loading"><div class="spinner"></div>Loading metrics...</div>
@@ -1272,6 +1271,16 @@
                 allLatest = await fetchJSON(`${API}/api/latest`);
                 renderCategoryTabs();
                 renderCards();
+
+                // Keep metric summary exactly same height as the metric grid (after render)
+                requestAnimationFrame(() => {
+                    const row = document.getElementById('metricsRow');
+                    const grid = document.getElementById('statRow');
+                    const panel = document.querySelector('.metric-summary-panel');
+                    if (row && grid && panel) {
+                        panel.style.maxHeight = grid.getBoundingClientRect().height + 'px';
+                    }
+                });
 
                 // Auto-select first metric
                 if (allLatest.length) {
