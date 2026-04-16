@@ -87,33 +87,20 @@ class Forecast:
     granularity: str
 
 
-def forecast_baseline(series: List[Tuple[datetime, float]], horizon: int, cadence: str = "daily") -> Forecast:
-    """Opaque-ish but stable: rolling mean + volatility-based band.
-
-    cadence:
-      - daily: horizon points, 1 day step
-      - weekly: horizon points, 7 day step
-      - monthly: horizon points, 30 day step (approx)
-      - other: 1 point
-    """
+def forecast_baseline(series: List[Tuple[datetime, float]], horizon: int) -> Forecast:
+    """Opaque-ish but stable: rolling mean + volatility-based band."""
     ys = [y for _, y in series]
     if len(ys) < 7:
-        return Forecast(points=[], model="baseline", horizon=horizon, granularity=cadence)
+        return Forecast(points=[], model="baseline", horizon=horizon, granularity="daily")
 
     window = min(30, len(ys))
     base = mean(ys[-window:])
     vol = std(ys[-window:])
 
     last_t = series[-1][0]
-    step_days = 1
-    if cadence == "weekly":
-        step_days = 7
-    elif cadence == "monthly":
-        step_days = 30
-
     pts = []
     for i in range(1, horizon + 1):
-        t = last_t + timedelta(days=step_days * i)
+        t = last_t + timedelta(days=i)
         pts.append(
             {
                 "timestamp": t.date().isoformat(),
@@ -122,7 +109,7 @@ def forecast_baseline(series: List[Tuple[datetime, float]], horizon: int, cadenc
                 "high": base + 1.96 * vol,
             }
         )
-    return Forecast(points=pts, model="rolling-mean", horizon=horizon, granularity=cadence)
+    return Forecast(points=pts, model="rolling-mean", horizon=horizon, granularity="daily")
 
 
 def driver_scores(
