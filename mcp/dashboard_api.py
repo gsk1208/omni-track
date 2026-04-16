@@ -11,6 +11,7 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
 import db
+import predict
 
 
 class DashboardAPI(BaseHTTPRequestHandler):
@@ -134,6 +135,42 @@ class DashboardAPI(BaseHTTPRequestHandler):
                        """
                 ) or {}
                 data = {"ok": True, "db": True, **stats}
+            elif path == "/api/predict":
+                name = params.get("name", [None])[0]
+                if not name:
+                    data = {"error": "name parameter required"}
+                else:
+                    mt = db.fetch_one(
+                        "SELECT name, display_name, unit, category, viz_type FROM metric_types WHERE name = ?",
+                        (name,),
+                    )
+                    if not mt:
+                        data = {"error": "unknown metric"}
+                    else:
+                        readings = db.fetch_all(
+                            """SELECT mr.value, mr.timestamp
+                               FROM metric_readings mr
+                               JOIN metric_types mt ON mr.metric_type_id = mt.id
+                               WHERE mt.name = ?
+                               ORDER BY mr.timestamp ASC""",
+                            (name,),
+                        )
+
+                        viz = mt.get("viz_type") or "line"
+                        series = predict.as_series(readings, viz)
+                        cadence = predict.detect_cadence(series)
+                        fc = predict.forecast_ml(series, cadence)
+
+                        data = {
+                            "metric": mt,
+                            "cadence": cadence,
+                            "forecast": {
+                                "model": fc.model,
+                                "granularity": fc.cadence,
+                                "horizon": len(fc.points),
+                                "points": fc.points,
+                            },
+                        }
             else:
                 data = {"error": "Unknown endpoint"}
 

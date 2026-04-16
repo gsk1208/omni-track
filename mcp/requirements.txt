@@ -1,2 +1,4 @@
+numpy>=1.26
+
 fastmcp>=2.0.0
 python-dotenv>=1.0
