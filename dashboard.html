@@ -583,10 +583,13 @@
                     <div class="chart-title" id="chartTitle">Select a metric to view trends</div>
                     <div class="chart-subtitle" id="chartSubtitle">Click any card above</div>
                 </div>
-                <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:12px;user-select:none;">
-                    <input type="checkbox" id="toggleForecast" style="accent-color: var(--accent-blue);" />
-                    Show forecast (7d)
-                </label>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:12px;user-select:none;">
+                        <input type="checkbox" id="toggleForecast" style="accent-color: var(--accent-blue);" />
+                        Predictive overlay
+                    </label>
+                    <span id="forecastMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
+                </div>
             </div>
             <div class="chart-container">
                 <canvas id="trendChart"></canvas>
@@ -825,11 +828,20 @@
                 info ? `${info.category} · ${info.unit || 'no unit'}` : '';
 
             const readings = await fetchJSON(`${API}/api/readings?name=${name}`);
-            drawTrendChart(readings, info);
+            let pred = null;
+            try {
+                pred = await fetchJSON(`${API}/api/predict?name=${name}`);
+            } catch (e) {
+                pred = null;
+            }
+            drawTrendChart(readings, info, pred);
         }
 
-        function drawTrendChart(readings, info) {
+        function drawTrendChart(readings, info, pred) {
             const showForecast = document.getElementById('toggleForecast')?.checked;
+            const metaEl = document.getElementById('forecastMeta');
+            if (metaEl) metaEl.textContent = '';
+
             const ctx = document.getElementById('trendChart').getContext('2d');
             if (trendChart) trendChart.destroy();
 
@@ -858,15 +870,41 @@
                 },
             ];
 
-            // Forecast (Phase 1): 7-day rolling average baseline, opt-in via toggle
-            if (showForecast && data.length >= 7) {
-                const fc = buildForecast(data, 7, 7);
-                if (fc.length) {
+            // Predictive overlay: dashed forecast + confidence band (from /api/predict)
+            if (showForecast) {
+                const fc = pred?.forecast;
+                const pts = fc?.points || [];
+                if (!pts.length) {
+                    if (metaEl) metaEl.textContent = 'Need more data';
+                } else {
+                    const gran = fc?.granularity || pred?.cadence || 'daily';
+                    if (metaEl) metaEl.textContent = `${gran} · ${pts.length} pts`;
+
+                    const fcPts = pts.map(p => ({ x: new Date(p.timestamp), y: p.value, low: p.low, high: p.high }));
+
+                    // confidence band (fill between high and low)
                     datasets.push({
-                        label: 'Forecast (7d avg)',
-                        data: fc,
-                        borderColor: '#94a3b8AA',
-                        backgroundColor: 'transparent',
+                        label: 'Forecast High',
+                        data: fcPts.map(p => ({ x: p.x, y: p.high })),
+                        borderColor: 'transparent',
+                        backgroundColor: '#94a3b822',
+                        pointRadius: 0,
+                        fill: '+1',
+                    });
+                    datasets.push({
+                        label: 'Forecast Low',
+                        data: fcPts.map(p => ({ x: p.x, y: p.low })),
+                        borderColor: 'transparent',
+                        pointRadius: 0,
+                        fill: false,
+                    });
+
+                    // dashed forecast
+                    datasets.push({
+                        label: 'Forecast',
+                        data: fcPts.map(p => ({ x: p.x, y: p.y })),
+                        borderColor: '#94a3b8CC',
+                        backgroundColor: isBar ? '#94a3b855' : 'transparent',
                         borderDash: [6, 4],
                         borderWidth: 2,
                         pointRadius: 0,
