@@ -5,6 +5,10 @@ mcp/omnitrack.db-shm
 run_*.log
 run_*.pid
 
+# Local dev artifacts
+artifacts/
+tmp_*.js
+
 # Python
 __pycache__/
 *.pyc

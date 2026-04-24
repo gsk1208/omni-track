@@ -108,13 +108,35 @@ def forecast_ml(series: List[Tuple[datetime, float]], cadence: str) -> Forecast:
     """Lightweight ML-ish: ridge regression on time index with residual band.
 
     For daily, uses last N points (up to 120). For weekly/monthly, uses up to 36.
+
+    If numpy isn't available, falls back to a simple moving-average forecast so
+    /api/predict can still return something usable in minimal environments.
     """
-    if np is None:
-        return Forecast(points=[], model="unavailable", cadence=cadence)
 
     n = len(series)
     if n < 10:
         return Forecast(points=[], model="need_more_data", cadence=cadence)
+
+    if np is None:
+        # Fallback: mean of last window, with a rough band from recent residuals.
+        h = horizon_points(cadence)
+        step = _step_days(cadence)
+        last_t = series[-1][0]
+        window = 14 if cadence == "daily" else 6
+        ys = [v for _, v in series[-window:]]
+        base = sum(ys) / len(ys)
+        sigma = 0.0
+        if len(ys) >= 3:
+            mu = base
+            sigma = math.sqrt(sum((v - mu) ** 2 for v in ys) / max(1, (len(ys) - 1)))
+
+        pts = []
+        for i in range(1, h + 1):
+            ts = (last_t + timedelta(days=step * i)).date().isoformat()
+            low = base - 1.96 * sigma
+            high = base + 1.96 * sigma
+            pts.append({"timestamp": ts, "value": base, "low": low, "high": high})
+        return Forecast(points=pts, model="fallback_mean", cadence=cadence)
 
     max_n = 120 if cadence == "daily" else 36
     series = series[-max_n:]

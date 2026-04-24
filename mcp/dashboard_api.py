@@ -35,6 +35,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
             return
 
         try:
+            status = 200
             if path == "/api/latest":
                 # Optional category filter
                 category = params.get("category", [None])[0]
@@ -138,6 +139,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
             elif path == "/api/predict":
                 name = params.get("name", [None])[0]
                 if not name:
+                    status = 400
                     data = {"error": "name parameter required"}
                 else:
                     mt = db.fetch_one(
@@ -145,6 +147,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
                         (name,),
                     )
                     if not mt:
+                        status = 404
                         data = {"error": "unknown metric"}
                     else:
                         readings = db.fetch_all(
@@ -161,6 +164,7 @@ class DashboardAPI(BaseHTTPRequestHandler):
                         cadence = predict.detect_cadence(series)
                         fc = predict.forecast_ml(series, cadence)
 
+                        status = 200
                         data = {
                             "metric": mt,
                             "cadence": cadence,
@@ -172,9 +176,10 @@ class DashboardAPI(BaseHTTPRequestHandler):
                             },
                         }
             else:
+                status = 404
                 data = {"error": "Unknown endpoint"}
 
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
@@ -202,5 +207,7 @@ if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", port), DashboardAPI)
     print(f"Dashboard API running on http://localhost:{port}")
     print(f"Dashboard: http://localhost:{port}/dashboard.html")
-    print("Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity, /api/health")
+    print(
+        "Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity, /api/health, /api/predict?name=X"
+    )
     server.serve_forever()

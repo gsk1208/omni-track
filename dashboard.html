@@ -135,6 +135,37 @@
             50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
         }
 
+        /* Toggle switch */
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: rgba(148,163,184,0.25);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            cursor: pointer;
+            flex: 0 0 auto;
+        }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            background: #e2e8f0;
+            border-radius: 999px;
+            transition: transform 0.18s ease, background 0.18s ease;
+        }
+        input:checked + .toggle {
+            background: rgba(59,130,246,0.35);
+            border-color: rgba(59,130,246,0.55);
+        }
+        input:checked + .toggle::after {
+            transform: translateX(20px);
+            background: #bfdbfe;
+        }
+
         /* Stat cards row */
         .stat-row {
             display: grid;
@@ -584,10 +615,13 @@
                     <div class="chart-subtitle" id="chartSubtitle">Click any card above</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;">
-                    <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:12px;user-select:none;">
-                        <input type="checkbox" id="toggleForecast" style="accent-color: var(--accent-blue);" />
-                        Predictive overlay
-                    </label>
+                    <div style="display:flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:12px;user-select:none;">
+                        <span>Predictive overlay</span>
+                        <label style="display:flex;align-items:center;gap:10px;">
+                            <input type="checkbox" id="toggleForecast" style="display:none" checked />
+                            <span class="toggle" aria-hidden="true"></span>
+                        </label>
+                    </div>
                     <span id="forecastMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
                 </div>
             </div>
@@ -834,6 +868,31 @@
             } catch (e) {
                 pred = null;
             }
+
+            // Fallback: if /api/predict is unavailable, still provide a simple baseline forecast
+            // so the dashboard overlay doesn't look broken in dev.
+            if (!pred || !pred.forecast || !Array.isArray(pred.forecast.points) || pred.forecast.points.length === 0) {
+                try {
+                    const daily = aggregateDaily(readings);
+                    const fcPts = buildForecast(daily, 7, 7);
+                    if (fcPts && fcPts.length) {
+                        pred = {
+                            cadence: 'daily',
+                            forecast: {
+                                model: 'fallback_mean',
+                                granularity: 'daily',
+                                horizon: fcPts.length,
+                                points: fcPts.map(p => {
+                                    const day = p.x.toISOString().slice(0, 10);
+                                    return { timestamp: day, value: p.y, low: p.y, high: p.y };
+                                }),
+                            },
+                        };
+                    }
+                } catch (e) {
+                    // ignore fallback errors
+                }
+            }
             drawTrendChart(readings, info, pred);
         }
 
@@ -880,7 +939,14 @@
                     const gran = fc?.granularity || pred?.cadence || 'daily';
                     if (metaEl) metaEl.textContent = `${gran} · ${pts.length} pts`;
 
-                    const fcPts = pts.map(p => ({ x: new Date(p.timestamp), y: p.value, low: p.low, high: p.high }));
+                    const fcPtsRaw = pts.map(p => ({ x: new Date(p.timestamp), y: p.value, low: p.low, high: p.high }));
+
+                    // Anchor forecast to last observed point so the dashed line visually connects.
+                    // (No API changes; keeps the forecast horizon semantics intact.)
+                    const lastObs = data && data.length ? data[data.length - 1] : null;
+                    const fcPts = (lastObs && lastObs.x != null && lastObs.y != null)
+                        ? [{ x: new Date(lastObs.x), y: Number(lastObs.y), low: Number(lastObs.y), high: Number(lastObs.y) }, ...fcPtsRaw]
+                        : fcPtsRaw;
 
                     // confidence band (fill between high and low)
                     datasets.push({
