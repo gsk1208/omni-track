@@ -166,12 +166,34 @@
             background: #bfdbfe;
         }
 
-        /* Stat cards row */
+        /* Metrics grid + side summary */
+        .metrics-grid-wrap {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 16px;
+            align-items: start;
+            margin-bottom: 28px;
+        }
+        @media (max-width: 1100px) {
+            .metrics-grid-wrap {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Stat cards grid */
         .stat-row {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
-            margin-bottom: 28px;
+            margin-bottom: 0;
+        }
+
+        .metric-summary-side {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px;
+            box-shadow: var(--shadow);
         }
         .stat-card {
             background: var(--bg-card);
@@ -659,9 +681,16 @@
             </div>
         </div>
 
-        <!-- Stat Cards -->
-        <div class="stat-row" id="statRow">
-            <div class="loading"><div class="spinner"></div>Loading metrics...</div>
+        <!-- Metrics grid + Metric summary side panel -->
+        <div class="metrics-grid-wrap">
+            <div class="stat-row" id="statRow">
+                <div class="loading"><div class="spinner"></div>Loading metrics...</div>
+            </div>
+
+            <div class="metric-summary-side">
+                <div class="section-title" style="margin:0 0 10px 0"><span class="icon">🧾</span> Metric summary</div>
+                <div id="metricSummary" class="corr-list metric-summary-list"></div>
+            </div>
         </div>
 
         <!-- Time-series Chart -->
@@ -727,10 +756,6 @@
                 <div class="insight-content" id="insightContent">Loading...</div>
                 <div class="insight-week" id="insightWeek"></div>
 
-                <div style="margin-top:12px">
-                    <div class="section-title" style="margin:0 0 8px 0"><span class="icon">🧾</span> Metric summary</div>
-                    <div id="metricSummary" class="corr-list metric-summary-list"></div>
-                </div>
             </div>
             <div class="activity-panel">
                 <div class="section-title"><span class="icon">📊</span> Ingestion Activity</div>
@@ -829,6 +854,7 @@
                 container.innerHTML = q
                     ? '<div class="loading">No metrics match your search</div>'
                     : '<div class="loading">No metrics in this category</div>';
+                scheduleMetricSummarySync();
                 return;
             }
 
@@ -861,6 +887,8 @@
                     </div>
                 `;
             }).join('');
+
+            scheduleMetricSummarySync();
         }
 
         function formatRelativeTime(ms) {
@@ -1277,22 +1305,37 @@
             return slope > 0 ? 'up' : 'down';
         }
 
-        function clampContainerToRows(container, rows) {
-            if (!container) return;
-            const first = container.children && container.children[0];
-            // reset by default
-            container.style.maxHeight = '';
-            container.style.overflowY = '';
-            if (!first || !rows) return;
+        let _metricSummarySyncRaf = null;
+        function syncMetricSummaryHeight() {
+            const container = document.getElementById('metricSummary');
+            const grid = document.getElementById('statRow');
+            if (!container || !grid) return;
 
-            const cs = getComputedStyle(container);
-            const gap = parseFloat(cs.gap || cs.rowGap || '0') || 0;
-            const h = first.getBoundingClientRect().height;
-            if (!h) return;
+            const gridH = grid.getBoundingClientRect().height;
+            if (!gridH || gridH < 10) return;
 
-            const maxH = (h * rows) + (gap * (rows - 1));
-            container.style.maxHeight = `${Math.round(maxH)}px`;
+            // Never exceed the metrics grid height
+            container.style.maxHeight = `${Math.floor(gridH)}px`;
             container.style.overflowY = 'auto';
+
+            // Minimum: 3 cells height (or the grid height if it's smaller)
+            const first = container.children && container.children[0];
+            if (first) {
+                const cs = getComputedStyle(container);
+                const gap = parseFloat(cs.gap || cs.rowGap || '0') || 0;
+                const cellH = first.getBoundingClientRect().height;
+                const minH = (cellH * 3) + (gap * 2);
+                container.style.minHeight = `${Math.min(Math.round(minH), Math.floor(gridH))}px`;
+            } else {
+                container.style.minHeight = '';
+            }
+        }
+
+        function scheduleMetricSummarySync() {
+            if (_metricSummarySyncRaf) cancelAnimationFrame(_metricSummarySyncRaf);
+            _metricSummarySyncRaf = requestAnimationFrame(() => {
+                _metricSummarySyncRaf = requestAnimationFrame(() => syncMetricSummaryHeight());
+            });
         }
 
         async function loadMetricSummaries() {
@@ -1333,9 +1376,7 @@
             }
 
             container.innerHTML = cards.length ? cards.join('') : '<div class="goals-empty">Not enough data yet to summarize.</div>';
-
-            // Clamp visible height to exactly 5 summary cells (scroll for the rest)
-            if (cards.length) clampContainerToRows(container, 5);
+            scheduleMetricSummarySync();
         }
 
         // ── Category tabs (dynamic) ───────────────────────────────────────
@@ -1485,6 +1526,7 @@
             }
         }
 
+        window.addEventListener('resize', () => scheduleMetricSummarySync());
         init();
     </script>
 </body>
