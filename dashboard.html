@@ -194,6 +194,9 @@
             border-radius: var(--radius);
             padding: 18px;
             box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
         .stat-card {
             background: var(--bg-card);
@@ -596,13 +599,16 @@
             gap: 12px;
         }
 
-        /* Metric summary: clamp to exact 5 cells (JS sets max-height), keep tight spacing */
+        /* Metric summary: scrollable list (JS syncs height to metrics grid) */
         .metric-summary-list {
             margin-top: 0;
             display: grid;
             gap: 10px;
             scrollbar-gutter: stable;
             padding-right: 6px; /* room for scrollbar */
+            overflow-y: auto;
+            flex: 1 1 auto;
+            min-height: 0;
         }
         .corr-card {
             background: rgba(59, 130, 246, 0.05);
@@ -1307,27 +1313,50 @@
 
         let _metricSummarySyncRaf = null;
         function syncMetricSummaryHeight() {
-            const container = document.getElementById('metricSummary');
+            const list = document.getElementById('metricSummary');
             const grid = document.getElementById('statRow');
-            if (!container || !grid) return;
+            const side = document.querySelector('.metric-summary-side');
+            if (!list || !grid || !side) return;
 
-            const gridH = grid.getBoundingClientRect().height;
+            // When stacked (mobile), let it be natural height
+            if (window.matchMedia('(max-width: 1100px)').matches) {
+                side.style.height = '';
+                list.style.maxHeight = '';
+                list.style.minHeight = '';
+                list.style.overflowY = '';
+                return;
+            }
+
+            const gridRect = grid.getBoundingClientRect();
+            const gridH = gridRect.height;
             if (!gridH || gridH < 10) return;
 
-            // Never exceed the metrics grid height
-            container.style.maxHeight = `${Math.floor(gridH)}px`;
-            container.style.overflowY = 'auto';
+            // Make the whole summary panel match the metrics grid height,
+            // so its bottom edge aligns with the last metric card.
+            side.style.height = `${Math.round(gridH)}px`;
 
-            // Minimum: 3 cells height (or the grid height if it's smaller)
-            const first = container.children && container.children[0];
+            // Ensure list scrolls within the remaining space inside the panel
+            list.style.overflowY = 'auto';
+            list.style.minHeight = '0px';
+
+            // Minimum: 3 cells tall (but never exceed the available height)
+            const first = list.children && list.children[0];
             if (first) {
-                const cs = getComputedStyle(container);
+                const cs = getComputedStyle(list);
                 const gap = parseFloat(cs.gap || cs.rowGap || '0') || 0;
                 const cellH = first.getBoundingClientRect().height;
-                const minH = (cellH * 3) + (gap * 2);
-                container.style.minHeight = `${Math.min(Math.round(minH), Math.floor(gridH))}px`;
+                const min3 = (cellH * 3) + (gap * 2);
+
+                // available height for the list = panel bottom - list top
+                const sideRect = side.getBoundingClientRect();
+                const listRect = list.getBoundingClientRect();
+                const available = Math.max(0, Math.floor(sideRect.bottom - listRect.top));
+
+                list.style.minHeight = `${Math.min(Math.round(min3), available)}px`;
+                list.style.maxHeight = `${available}px`;
             } else {
-                container.style.minHeight = '';
+                list.style.minHeight = '';
+                list.style.maxHeight = '';
             }
         }
 
