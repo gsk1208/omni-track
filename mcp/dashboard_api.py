@@ -75,19 +75,89 @@ class DashboardAPI(BaseHTTPRequestHandler):
                 )
             elif path == "/api/readings":
                 name = params.get("name", [None])[0]
+                agg = (params.get("agg", [None])[0] or "").lower().strip()  # daily|weekly|monthly
+                range_key = (params.get("range", [None])[0] or "").lower().strip()  # 1w|1m|3m|6m|1y|all
                 if not name:
                     data = {"error": "name parameter required"}
                 else:
-                    data = db.fetch_all(
-                        """SELECT mr.value, mr.timestamp, mt.unit,
-                                  sr.min_value AS safe_min, sr.max_value AS safe_max
-                           FROM metric_readings mr
-                           JOIN metric_types mt ON mr.metric_type_id = mt.id
-                           LEFT JOIN safe_ranges sr ON sr.metric_name = mt.name
-                           WHERE mt.name = ?
-                           ORDER BY mr.timestamp ASC""",
-                        (name,),
-                    )
+                    # Optional server-side bucketing for long-term charts.
+                    # - agg: daily|weekly|monthly
+                    # - range: 1w|1m|3m|6m|1y|all
+                    if agg in ("daily", "weekly", "monthly"):
+                        mt = db.fetch_one(
+                            "SELECT name, unit, viz_type FROM metric_types WHERE name = ?",
+                            (name,),
+                        )
+                        if not mt:
+                            status = 404
+                            data = {"error": "unknown metric"}
+                        else:
+                            viz = (mt.get("viz_type") or "line").lower()
+                            value_fn = "SUM" if viz == "bar" else "AVG"
+
+                            if agg == "daily":
+                                bucket_expr = "DATE(mr.timestamp)"
+                            elif agg == "weekly":
+                                # Monday start-of-week bucket.
+                                bucket_expr = "DATE(mr.timestamp, 'weekday 1', '-7 days')"
+                            else:  # monthly
+                                bucket_expr = "DATE(mr.timestamp, 'start of month')"
+
+                            # Range filter (relative to now)
+                            range_map = {
+                                "1w": "-7 days",
+                                "1m": "-30 days",
+                                "3m": "-90 days",
+                                "6m": "-180 days",
+                                "1y": "-365 days",
+                                "all": None,
+                                "": None,
+                            }
+                            since_mod = range_map.get(range_key)
+
+                            where = "WHERE mt.name = ?"
+                            args = [name]
+                            if since_mod:
+                                where += " AND datetime(mr.timestamp) >= datetime('now', ?)"
+                                args.append(since_mod)
+
+                            data = db.fetch_all(
+                                f"""
+                                SELECT
+                                    value,
+                                    bucket AS timestamp,
+                                    unit,
+                                    safe_min,
+                                    safe_max
+                                FROM (
+                                    SELECT
+                                        {value_fn}(mr.value) AS value,
+                                        {bucket_expr} AS bucket,
+                                        mt.unit AS unit,
+                                        MAX(sr.min_value) AS safe_min,
+                                        MAX(sr.max_value) AS safe_max
+                                    FROM metric_readings mr
+                                    JOIN metric_types mt ON mr.metric_type_id = mt.id
+                                    LEFT JOIN safe_ranges sr ON sr.metric_name = mt.name
+                                    {where}
+                                    GROUP BY bucket
+                                )
+                                ORDER BY bucket ASC
+                                """,
+                                tuple(args),
+                            )
+                    else:
+                        # Raw points (default / backwards compatible)
+                        data = db.fetch_all(
+                            """SELECT mr.value, mr.timestamp, mt.unit,
+                                      sr.min_value AS safe_min, sr.max_value AS safe_max
+                               FROM metric_readings mr
+                               JOIN metric_types mt ON mr.metric_type_id = mt.id
+                               LEFT JOIN safe_ranges sr ON sr.metric_name = mt.name
+                               WHERE mt.name = ?
+                               ORDER BY mr.timestamp ASC""",
+                            (name,),
+                        )
             elif path == "/api/insight":
                 data = db.fetch_one("SELECT week_start, content FROM insights ORDER BY week_start DESC LIMIT 1")
                 if not data:

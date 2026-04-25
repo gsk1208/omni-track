@@ -338,6 +338,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            gap: 12px;
         }
         .chart-title {
             font-size: 16px;
@@ -351,6 +352,53 @@
         .chart-container {
             position: relative;
             height: 350px;
+        }
+
+        /* Chart controls */
+        .chart-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .chip-group {
+            display: flex;
+            gap: 6px;
+            padding: 6px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: rgba(17, 24, 39, 0.35);
+        }
+        .chip {
+            padding: 7px 10px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        .chip:hover { color: var(--text-primary); border-color: rgba(59,130,246,0.35); }
+        .chip.active {
+            background: rgba(59,130,246,0.25);
+            border-color: rgba(59,130,246,0.6);
+            color: #bfdbfe;
+        }
+        .agg-select {
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(17, 24, 39, 0.55);
+            color: var(--text-primary);
+            font-size: 12px;
+            outline: none;
+        }
+        .agg-select:focus {
+            border-color: rgba(59,130,246,0.6);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
         }
 
         /* Bottom grid */
@@ -614,15 +662,32 @@
                     <div class="chart-title" id="chartTitle">Select a metric to view trends</div>
                     <div class="chart-subtitle" id="chartSubtitle">Click any card above</div>
                 </div>
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <div style="display:flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:12px;user-select:none;">
-                        <span>Predictive overlay</span>
-                        <label style="display:flex;align-items:center;gap:10px;">
-                            <input type="checkbox" id="toggleForecast" style="display:none" checked />
-                            <span class="toggle" aria-hidden="true"></span>
-                        </label>
+                <div class="chart-controls">
+                    <div class="chip-group" id="timeframeChips" aria-label="Timeframe">
+                        <button class="chip" data-range="1W">1W</button>
+                        <button class="chip" data-range="1M">1M</button>
+                        <button class="chip active" data-range="3M">3M</button>
+                        <button class="chip" data-range="6M">6M</button>
+                        <button class="chip" data-range="1Y">1Y</button>
+                        <button class="chip" data-range="All">All</button>
                     </div>
-                    <span id="forecastMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
+
+                    <select class="agg-select" id="aggSelect" aria-label="Aggregation">
+                        <option value="daily" selected>Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <div style="display:flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:12px;user-select:none;">
+                            <span>Predictive overlay</span>
+                            <label style="display:flex;align-items:center;gap:10px;">
+                                <input type="checkbox" id="toggleForecast" style="display:none" checked />
+                                <span class="toggle" aria-hidden="true"></span>
+                            </label>
+                        </div>
+                        <span id="forecastMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
+                    </div>
                 </div>
             </div>
             <div class="chart-container">
@@ -683,6 +748,8 @@
         let selectedMetric = null;
         let activeCategory = 'all';
         let metricQuery = '';
+        let trendRange = '3M';
+        let trendAgg = 'daily';
 
         // Header: show API base + allow quick override
         (function initApiLink() {
@@ -861,17 +928,21 @@
             document.getElementById('chartSubtitle').textContent =
                 info ? `${info.category} · ${info.unit || 'no unit'}` : '';
 
-            const readings = await fetchJSON(`${API}/api/readings?name=${name}`);
+            const readings = await fetchJSON(`${API}/api/readings?name=${encodeURIComponent(name)}&range=${encodeURIComponent(trendRange)}&agg=${encodeURIComponent(trendAgg)}`);
+
+            // Predictive overlay is only meaningful on daily (same cadence as forecast output)
             let pred = null;
-            try {
-                pred = await fetchJSON(`${API}/api/predict?name=${name}`);
-            } catch (e) {
-                pred = null;
+            if (trendAgg === 'daily') {
+                try {
+                    pred = await fetchJSON(`${API}/api/predict?name=${encodeURIComponent(name)}`);
+                } catch (e) {
+                    pred = null;
+                }
             }
 
             // Fallback: if /api/predict is unavailable, still provide a simple baseline forecast
             // so the dashboard overlay doesn't look broken in dev.
-            if (!pred || !pred.forecast || !Array.isArray(pred.forecast.points) || pred.forecast.points.length === 0) {
+            if (trendAgg === 'daily' && (!pred || !pred.forecast || !Array.isArray(pred.forecast.points) || pred.forecast.points.length === 0)) {
                 try {
                     const daily = aggregateDaily(readings);
                     const fcPts = buildForecast(daily, 7, 7);
@@ -897,20 +968,21 @@
         }
 
         function drawTrendChart(readings, info, pred) {
-            const showForecast = document.getElementById('toggleForecast')?.checked;
+            const toggleEl = document.getElementById('toggleForecast');
+            const showForecast = (trendAgg === 'daily') && !!toggleEl?.checked;
             const metaEl = document.getElementById('forecastMeta');
             if (metaEl) metaEl.textContent = '';
 
             const ctx = document.getElementById('trendChart').getContext('2d');
             if (trendChart) trendChart.destroy();
 
-            const raw = readings.filter(r => r.value != null).map(r => ({ x: new Date(r.timestamp), y: r.value }));
+            const raw = readings.filter(r => r.value != null).map(r => ({ x: new Date(r.timestamp), y: Number(r.value) }));
             const color = catColors[info?.category] || '#3b82f6';
             const vizType = info?.viz_type || 'line';
             const isBar = vizType === 'bar';
 
-            // Use daily aggregation for bar charts, raw points for line charts
-            const data = isBar ? aggregateDaily(readings) : raw;
+            // Server is doing bucketing for the selected agg; plot as-is.
+            const data = raw;
 
             const datasets = [
                 {
@@ -979,6 +1051,11 @@
                 }
             }
 
+            // Disable/annotate forecast when not daily
+            if (trendAgg !== 'daily') {
+                if (metaEl) metaEl.textContent = 'Forecast: daily only';
+            }
+
             // Safe range bands (only for line charts)
             if (!isBar && readings.length && readings[0].safe_min != null) {
                 const safeMin = readings[0].safe_min;
@@ -1030,7 +1107,10 @@
                     scales: {
                         x: {
                             type: 'time',
-                            time: { unit: 'day', tooltipFormat: 'MMM dd, yyyy' },
+                            time: {
+                                unit: (trendAgg === 'monthly') ? 'month' : (trendAgg === 'weekly') ? 'week' : 'day',
+                                tooltipFormat: 'MMM dd, yyyy',
+                            },
                             grid: { color: isBar ? 'transparent' : '#1e293b' },
                             ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
                         },
@@ -1043,6 +1123,34 @@
                 },
             });
         }
+
+        // ── Timeframe + aggregation controls ─────────────────────────────
+        (function initTrendControls() {
+            const chips = document.getElementById('timeframeChips');
+            const agg = document.getElementById('aggSelect');
+            const toggle = document.getElementById('toggleForecast');
+            if (chips) {
+                chips.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.chip');
+                    if (!btn) return;
+                    trendRange = btn.dataset.range || '1W';
+                    [...chips.querySelectorAll('.chip')].forEach(b => b.classList.toggle('active', b === btn));
+                    if (selectedMetric) selectMetric(selectedMetric);
+                });
+            }
+            if (agg) {
+                agg.addEventListener('change', () => {
+                    trendAgg = agg.value || 'daily';
+                    // Disable forecast toggle when not daily
+                    if (toggle) {
+                        if (trendAgg !== 'daily') {
+                            toggle.checked = false;
+                        }
+                    }
+                    if (selectedMetric) selectMetric(selectedMetric);
+                });
+            }
+        })();
 
         // ── Activity chart ──────────────────────────────────────────────────
         async function loadActivity() {
