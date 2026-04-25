@@ -573,6 +573,15 @@
             flex-direction: column;
             gap: 12px;
         }
+
+        /* Metric summary: clamp to exact 5 cells (JS sets max-height), keep tight spacing */
+        .metric-summary-list {
+            margin-top: 0;
+            display: grid;
+            gap: 10px;
+            scrollbar-gutter: stable;
+            padding-right: 6px; /* room for scrollbar */
+        }
         .corr-card {
             background: rgba(59, 130, 246, 0.05);
             border: 1px solid rgba(59, 130, 246, 0.15);
@@ -720,7 +729,7 @@
 
                 <div style="margin-top:12px">
                     <div class="section-title" style="margin:0 0 8px 0"><span class="icon">🧾</span> Metric summary</div>
-                    <div id="metricSummary" class="corr-list" style="display:grid;gap:10px"></div>
+                    <div id="metricSummary" class="corr-list metric-summary-list"></div>
                 </div>
             </div>
             <div class="activity-panel">
@@ -1268,6 +1277,24 @@
             return slope > 0 ? 'up' : 'down';
         }
 
+        function clampContainerToRows(container, rows) {
+            if (!container) return;
+            const first = container.children && container.children[0];
+            // reset by default
+            container.style.maxHeight = '';
+            container.style.overflowY = '';
+            if (!first || !rows) return;
+
+            const cs = getComputedStyle(container);
+            const gap = parseFloat(cs.gap || cs.rowGap || '0') || 0;
+            const h = first.getBoundingClientRect().height;
+            if (!h) return;
+
+            const maxH = (h * rows) + (gap * (rows - 1));
+            container.style.maxHeight = `${Math.round(maxH)}px`;
+            container.style.overflowY = 'auto';
+        }
+
         async function loadMetricSummaries() {
             const container = document.getElementById('metricSummary');
             if (!container) return;
@@ -1306,6 +1333,9 @@
             }
 
             container.innerHTML = cards.length ? cards.join('') : '<div class="goals-empty">Not enough data yet to summarize.</div>';
+
+            // Clamp visible height to exactly 5 summary cells (scroll for the rest)
+            if (cards.length) clampContainerToRows(container, 5);
         }
 
         // ── Category tabs (dynamic) ───────────────────────────────────────
