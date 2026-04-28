@@ -379,6 +379,35 @@
             height: 350px;
         }
 
+        /* Seasonality panel uses compact charts (don’t inherit 350px trend height) */
+        .seasonality-container {
+            position: relative;
+            height: auto;
+        }
+        .seasonality-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            align-items: stretch;
+        }
+        @media (max-width: 900px) {
+            .seasonality-grid { grid-template-columns: 1fr; }
+        }
+        .seasonality-card {
+            background: rgba(148,163,184,0.04);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            height: 220px;
+            display: flex;
+            flex-direction: column;
+        }
+        .seasonality-card canvas {
+            flex: 1;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
         /* Chart controls */
         .chart-controls {
             display: flex;
@@ -756,14 +785,16 @@
                     <span id="seasonalityMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
                 </div>
             </div>
-            <div class="chart-container" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;">
-                <div style="background:rgba(148,163,184,0.04);border:1px solid var(--border);border-radius:12px;padding:12px;">
-                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">By weekday</div>
-                    <canvas id="weekdayChart" height="140"></canvas>
-                </div>
-                <div style="background:rgba(148,163,184,0.04);border:1px solid var(--border);border-radius:12px;padding:12px;">
-                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">By month</div>
-                    <canvas id="monthChart" height="140"></canvas>
+            <div class="seasonality-container">
+                <div class="seasonality-grid">
+                    <div class="seasonality-card">
+                        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">By weekday</div>
+                        <canvas id="weekdayChart"></canvas>
+                    </div>
+                    <div class="seasonality-card">
+                        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">By month</div>
+                        <canvas id="monthChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
