@@ -50,12 +50,25 @@ const { chromium } = require('playwright');
       return;
     }
 
+    async function waitForOverlayState({ on }) {
+      await page.waitForFunction((expectedOn) => {
+        const canvas = document.getElementById('trendChart');
+        const chart = (window.Chart && (window.Chart.getChart?.(canvas) || window.Chart.getChart?.('trendChart'))) || null;
+        const ds = chart?.data?.datasets || [];
+        const hasForecast = ds.some(d => d.label === 'Forecast');
+        const hasHigh = ds.some(d => d.label === 'Forecast High');
+        const hasLow = ds.some(d => d.label === 'Forecast Low');
+        const hasBand = hasHigh && hasLow;
+        return expectedOn ? (hasForecast && hasBand) : (!hasForecast && !hasHigh && !hasLow);
+      }, on, { timeout: 15000 });
+    }
+
     // Force overlay ON
     await page.evaluate(() => {
       const t = document.getElementById('toggleForecast');
       if (!t.checked) { t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); }
     });
-    await page.waitForTimeout(300);
+    await waitForOverlayState({ on: true });
 
     const resOn = await page.evaluate(() => {
       const meta = document.getElementById('forecastMeta')?.textContent || '';
@@ -78,7 +91,7 @@ const { chromium } = require('playwright');
       const t = document.getElementById('toggleForecast');
       if (t.checked) { t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); }
     });
-    await page.waitForTimeout(300);
+    await waitForOverlayState({ on: false });
 
     const resOff = await page.evaluate(() => {
       const canvas = document.getElementById('trendChart');
@@ -95,7 +108,7 @@ const { chromium } = require('playwright');
       const t = document.getElementById('toggleForecast');
       if (!t.checked) { t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); }
     });
-    await page.waitForTimeout(250);
+    await waitForOverlayState({ on: true });
 
     if (!resOn.hasForecast) {
       blockers.push(`${label}: forecast line missing when overlay ON (forecastMeta="${resOn.meta}")`);
