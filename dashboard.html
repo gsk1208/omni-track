@@ -739,6 +739,35 @@
             </div>
         </div>
 
+        <!-- Seasonality -->
+        <div class="chart-panel" style="margin-top:16px;">
+            <div class="chart-header">
+                <div>
+                    <div class="chart-title">Seasonality insights</div>
+                    <div class="chart-subtitle" id="seasonalitySubtitle">Weekday/weekend + month effects (last 1Y)</div>
+                </div>
+                <div class="chart-controls" style="gap:10px;">
+                    <select class="agg-select" id="seasonalityRange" aria-label="Seasonality range">
+                        <option value="3m">3M</option>
+                        <option value="6m">6M</option>
+                        <option value="1y" selected>1Y</option>
+                        <option value="all">All</option>
+                    </select>
+                    <span id="seasonalityMeta" style="color:var(--text-secondary);font-size:12px;opacity:0.85"></span>
+                </div>
+            </div>
+            <div class="chart-container" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;">
+                <div style="background:rgba(148,163,184,0.04);border:1px solid var(--border);border-radius:12px;padding:12px;">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">By weekday</div>
+                    <canvas id="weekdayChart" height="140"></canvas>
+                </div>
+                <div style="background:rgba(148,163,184,0.04);border:1px solid var(--border);border-radius:12px;padding:12px;">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">By month</div>
+                    <canvas id="monthChart" height="140"></canvas>
+                </div>
+            </div>
+        </div>
+
         <!-- Goals & Streaks -->
         <div class="goals-panel">
             <div class="section-title"><span class="icon">🎯</span> Goals & Streaks</div>
@@ -784,6 +813,8 @@
         const API = getApiBase();
         let trendChart = null;
         let activityChart = null;
+        let weekdayChart = null;
+        let monthChart = null;
         let allLatest = [];
         let selectedMetric = null;
         let activeCategory = 'all';
@@ -1008,6 +1039,97 @@
                 }
             }
             drawTrendChart(readings, info, pred);
+
+            // Seasonality
+            try {
+                await renderSeasonality(name, info);
+            } catch (e) {
+                // keep dashboard resilient
+            }
+        }
+
+        async function renderSeasonality(name, info) {
+            const sel = document.getElementById('seasonalityRange');
+            if (sel && !sel._bound) {
+                sel._bound = true;
+                sel.addEventListener('change', () => {
+                    if (selectedMetric) renderSeasonality(selectedMetric, allLatest.find(m => m.name === selectedMetric));
+                });
+            }
+
+            const range = (document.getElementById('seasonalityRange')?.value || '1y');
+            const metaEl = document.getElementById('seasonalityMeta');
+            if (metaEl) metaEl.textContent = '';
+
+            const data = await fetchJSON(`${API}/api/seasonality?name=${encodeURIComponent(name)}&range=${encodeURIComponent(range)}`);
+            const color = catColors[info?.category] || '#3b82f6';
+
+            const wvw = data?.weekend_vs_weekday;
+            if (metaEl && wvw && wvw.weekday_avg != null && wvw.weekend_avg != null) {
+                const d = wvw.delta_pct;
+                const s = (d == null) ? '' : `${d >= 0 ? '+' : ''}${d.toFixed(1)}% weekend`;
+                metaEl.textContent = s;
+            }
+
+            // Weekday chart
+            const wd = (data?.weekday || []).map(x => ({ label: x.label, value: x.value }));
+            const wdLabels = wd.map(x => x.label);
+            const wdVals = wd.map(x => x.value == null ? null : Number(x.value));
+            const wdCtx = document.getElementById('weekdayChart').getContext('2d');
+            if (weekdayChart) weekdayChart.destroy();
+            weekdayChart = new Chart(wdCtx, {
+                type: 'bar',
+                data: {
+                    labels: wdLabels,
+                    datasets: [{
+                        label: 'Avg',
+                        data: wdVals,
+                        backgroundColor: color + '66',
+                        borderColor: color + 'CC',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
+                    },
+                },
+            });
+
+            // Month chart
+            const mm = (data?.month || []).map(x => ({ label: x.label, value: x.value }));
+            const mmLabels = mm.map(x => x.label);
+            const mmVals = mm.map(x => x.value == null ? null : Number(x.value));
+            const mmCtx = document.getElementById('monthChart').getContext('2d');
+            if (monthChart) monthChart.destroy();
+            monthChart = new Chart(mmCtx, {
+                type: 'bar',
+                data: {
+                    labels: mmLabels,
+                    datasets: [{
+                        label: 'Avg',
+                        data: mmVals,
+                        backgroundColor: '#94a3b833',
+                        borderColor: '#94a3b866',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8', maxRotation: 0 }, grid: { color: 'rgba(148,163,184,0.08)' } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
+                    },
+                },
+            });
         }
 
         function drawTrendChart(readings, info, pred) {

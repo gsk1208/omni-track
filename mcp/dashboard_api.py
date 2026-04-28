@@ -12,6 +12,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(__file__))
 import db
 import predict
+import seasonality
 
 
 class DashboardAPI(BaseHTTPRequestHandler):
@@ -245,6 +246,52 @@ class DashboardAPI(BaseHTTPRequestHandler):
                                 "points": fc.points,
                             },
                         }
+            elif path == "/api/seasonality":
+                name = params.get("name", [None])[0]
+                range_key = (params.get("range", [None])[0] or "1y").lower().strip()  # 1w|1m|3m|6m|1y|all
+                if not name:
+                    status = 400
+                    data = {"error": "name parameter required"}
+                else:
+                    mt = db.fetch_one(
+                        "SELECT name, display_name, unit, category, viz_type FROM metric_types WHERE name = ?",
+                        (name,),
+                    )
+                    if not mt:
+                        status = 404
+                        data = {"error": "unknown metric"}
+                    else:
+                        range_map = {
+                            "1w": "-7 days",
+                            "1m": "-30 days",
+                            "3m": "-90 days",
+                            "6m": "-180 days",
+                            "1y": "-365 days",
+                            "all": None,
+                            "": None,
+                        }
+                        since_mod = range_map.get(range_key, "-365 days")
+
+                        where = "WHERE mt.name = ? AND mr.value IS NOT NULL"
+                        args = [name]
+                        if since_mod:
+                            where += " AND datetime(mr.timestamp) >= datetime('now', ?)"
+                            args.append(since_mod)
+
+                        readings = db.fetch_all(
+                            f"""
+                            SELECT mr.value, mr.timestamp
+                            FROM metric_readings mr
+                            JOIN metric_types mt ON mr.metric_type_id = mt.id
+                            {where}
+                            ORDER BY mr.timestamp ASC
+                            """,
+                            tuple(args),
+                        )
+
+                        viz = (mt.get("viz_type") or "line").lower()
+                        out = seasonality.compute_seasonality(readings, viz_type=viz)
+                        data = {"metric": mt, "range": range_key, **out}
             else:
                 status = 404
                 data = {"error": "Unknown endpoint"}
@@ -278,6 +325,6 @@ if __name__ == "__main__":
     print(f"Dashboard API running on http://localhost:{port}")
     print(f"Dashboard: http://localhost:{port}/dashboard.html")
     print(
-        "Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity, /api/health, /api/predict?name=X"
+        "Endpoints: /api/latest, /api/metrics, /api/readings?name=X, /api/insight, /api/activity, /api/health, /api/predict?name=X, /api/seasonality?name=X"
     )
     server.serve_forever()
